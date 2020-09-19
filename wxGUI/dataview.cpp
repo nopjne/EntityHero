@@ -860,7 +860,8 @@ void MyFrame::BuildDataViewCtrl(wxPanel* parent, wxSizer* sizer, unsigned int nP
             m_ctrl[Page_EntityView]->AssociateModel( m_entity_view_model.get() );
             m_ctrl[0]->Expand(m_entity_view_model->GetRoot());
 
-#if wxUSE_DRAG_AND_DROP && wxUSE_UNICODE
+
+#if wxUSE_DRAG_AND_DROP && wxUSE_UNICODE && _DEBUG
             m_ctrl[Page_EntityView]->EnableDragSource( wxDF_UNICODETEXT );
             m_ctrl[Page_EntityView]->EnableDropTarget( wxDF_UNICODETEXT );
 #endif // wxUSE_DRAG_AND_DROP && wxUSE_UNICODE
@@ -1605,8 +1606,10 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     menu.Append(CID_GOTO_REFERENCE, "Goto reference");
     menu.Append(CID_DUPLICATE, "Duplicate");
     menu.Append(CID_DELETE, "Delete");
+#ifdef _DEBUG
     menu.Append(CID_EDIT_KEY_NAME, "Edit key name");
     menu.Append(CID_ADD_ITEM, "Add new node");
+#endif
 
     if (m_entity_view_model->IsContainer(event.GetItem()) == false) {
         if (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false) {
@@ -1843,12 +1846,14 @@ void MyFrame::ConstructTreeView()
     //m_entity_view_model->DecRef();
     m_ctrl[0]->Expand(m_entity_view_model->GetRoot());
 
+#ifdef _DEBUG
     m_ctrl[Page_EntityView]->EnableDragSource(wxDF_UNICODETEXT);
     m_ctrl[Page_EntityView]->EnableDropTarget(wxDF_UNICODETEXT);
+#endif
 
     // column 0 of the view control:
     wxDataViewTextRenderer* tr =
-        new wxDataViewTextRenderer("string", wxDATAVIEW_CELL_INERT);
+        new wxDataViewTextRenderer("string", wxDATAVIEW_CELL_EDITABLE);
     wxDataViewColumn* column0 =
         new wxDataViewColumn("key", tr, 0, FromDIP(400), wxALIGN_LEFT,
             wxDATAVIEW_COL_SORTABLE | wxDATAVIEW_COL_RESIZABLE);
