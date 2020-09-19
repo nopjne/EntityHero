@@ -76,7 +76,17 @@ public:
             n += 1;
         }
 
-        m_valueRef->InsertMember(child->m_keyCopy, child->m_valueCopy, Document.GetAllocator(), n);
+        if ((m_valueRef->GetFlags() & 0x4000) && (child->m_valueCopy.IsObject() != false)) {
+            rapidjson::Value ArrayItemValue;
+            rapidjson::Value ArrayItemName;
+            ArrayItemName.SetString("0");
+            ArrayItemValue.SetObject();
+            ArrayItemValue.InsertMember(child->m_keyCopy, child->m_valueCopy, Document.GetAllocator(), 0);
+            m_valueRef->InsertMember(ArrayItemName, ArrayItemValue, Document.GetAllocator(), n);
+
+        } else {
+            m_valueRef->InsertMember(child->m_keyCopy, child->m_valueCopy, Document.GetAllocator(), n);
+        }
     }
 
     void Append(EntityTreeModelNode* child, rapidjson::Document& Document)
@@ -89,7 +99,7 @@ public:
         { return m_children.GetCount(); }
 
     size_t GetChildIndex(EntityTreeModelNode* Node);
-    EntityTreeModelNode* FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t& Index, bool Exact);
+    EntityTreeModelNode* FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t& Index, bool Exact, bool MatchCase);
 
 public:
     wxString                m_key;
@@ -104,6 +114,13 @@ public:
     rapidjson::Value               m_keyCopy;
     rapidjson::Value              *m_valueRef;
     rapidjson::Value              *m_keyRef;
+};
+
+enum eSearchDirection
+{
+    FIRST,
+    NEXT,
+    PREV,
 };
 
 class EntityTreeModel: public wxDataViewModel
@@ -130,7 +147,7 @@ public:
         return wxDataViewItem(m_root);
     }
 
-    wxDataViewItem SelectText(wxString& Text, bool Next = true, bool Exact = false);
+    wxDataViewItem SelectText(wxString& Text, eSearchDirection Dir = eSearchDirection::NEXT, bool Exact = false, bool MatchCase = false);
 
     bool IsArrayElement(wxDataViewItem* Item);
 

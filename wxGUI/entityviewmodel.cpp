@@ -233,10 +233,20 @@ bool PartialMatch(wxString& a, wxString& b)
     return (strstr(b.c_str().AsChar(), a.c_str().AsChar()) != nullptr);
 }
 
-EntityTreeModelNode* EntityTreeModelNode::FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t &Index, bool Exact)
+EntityTreeModelNode* EntityTreeModelNode::FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t &Index, bool Exact, bool MatchCase)
 {
-    if ((Text == m_key || Text == m_value) || 
-       ((Exact == false) && (PartialMatch(Text, m_key) || PartialMatch(Text, m_value)))) {
+    wxString StrText = Text;
+    wxString StrKey = m_key;
+    wxString StrValue = m_value;
+
+    if (MatchCase == false) {
+        StrText = StrText.Lower();
+        StrKey = StrKey.Lower();
+        StrValue = StrValue.Lower();
+    }
+
+    if ((StrText == StrKey || StrText == StrValue) ||
+       ((Exact == false) && (PartialMatch(StrText, StrKey) || PartialMatch(StrText, StrValue)))) {
 
         if (Index == IndexToFind) {
             return this;
@@ -251,7 +261,7 @@ EntityTreeModelNode* EntityTreeModelNode::FindByName(size_t Depth, size_t MaxDep
 
     size_t Count = GetChildren().size();
     for (size_t i = 0; i < Count; i += 1) {
-        EntityTreeModelNode *Result = GetChildren().at(i)->FindByName(Depth + 1, MaxDepth, Text, IndexToFind, Index, Exact);
+        EntityTreeModelNode *Result = GetChildren().at(i)->FindByName(Depth + 1, MaxDepth, Text, IndexToFind, Index, Exact, MatchCase);
         if (Result != nullptr) {
             return Result;
         }
@@ -262,23 +272,33 @@ EntityTreeModelNode* EntityTreeModelNode::FindByName(size_t Depth, size_t MaxDep
 
 wxString m_PreviousToFind;
 size_t Index = -1;
-wxDataViewItem EntityTreeModel::SelectText(wxString& Text, bool Next, bool Exact)
+wxDataViewItem EntityTreeModel::SelectText(wxString& Text, eSearchDirection SearchDir, bool Exact, bool MatchCase)
 {
-    if (Next == false) {
+    //
+    // TODO: Rewrite this function to have a context Node. This should optimize consecutive searching considerably.
+    //
+
+    if (SearchDir == eSearchDirection::FIRST) {
         Index = 0;
-    } else {
-        Index += 1;
     }
 
     if (m_PreviousToFind != Text) {
         Index = 0;
     }
 
+    size_t PrevIndex = Index;
+    if (SearchDir == eSearchDirection::NEXT) {
+        Index += 1;
+
+    } else if (SearchDir == eSearchDirection::PREV) {
+        Index -= 1;
+    }
+
     m_PreviousToFind = Text;
     size_t Counter = 0;
-    EntityTreeModelNode *Result = m_root->FindByName(0, 0, Text, Index, Counter, Exact);
+    EntityTreeModelNode *Result = m_root->FindByName(0, 0, Text, Index, Counter, Exact, MatchCase);
     if (Result == nullptr) {
-        Index = -1;
+        Index = PrevIndex;
     }
 
     return wxDataViewItem(Result);
@@ -293,7 +313,14 @@ bool EntityTreeModel::IsArrayElement(wxDataViewItem* Item)
     }
 
     if ((Parent->m_valueRef->GetFlags() & 0x4000) != 0) {
-        return true;
+        // Check whether Parent is a direct ancestor, in JSON too.
+        for (auto Member = Parent->m_valueRef->MemberBegin(); Member != Parent->m_valueRef->MemberEnd(); Member++) {
+            if (&(Member->name) == Node->m_keyRef) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     return false;
@@ -304,7 +331,7 @@ size_t EntityTreeModel::CountByName(wxString& Text, bool Exact, size_t MaxDepth)
     size_t Counter = 0;
     EntityTreeModelNode* Result = nullptr;
     do {
-        Result = m_root->FindByName(0, MaxDepth, Text, Index, Counter, Exact);
+        Result = m_root->FindByName(0, MaxDepth, Text, Index, Counter, Exact, true);
     } while (Result != nullptr);
 
     return Counter;
@@ -347,7 +374,7 @@ EntityTreeModelNode* EntityTreeModel::Duplicate(wxDataViewItem* Item, rapidjson:
     Value valueCopy = DuplicateJson(*(node->m_valueRef), Document);
     Value keyCopy = DuplicateJson(*(node->m_keyRef), Document);
     EntityTreeModelNode* NewNode;
-    if (node->m_keyCopy.IsObject() == false) {
+    if (node->m_valueCopy.IsObject() == false) {
         NewNode = new EntityTreeModelNode(Parent, wxString("0"), ValueToString(node->m_valueCopy), node->m_valueCopy, node->m_valueCopy, Document);
 
     } else {
@@ -407,22 +434,19 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
             if (ArrayItemCount != 0) {
                 char itemstr[MAX_PATH];
                 sprintf(itemstr, "item[%i]", (int)ArrayItem);
-                // Skip the array items.
-                //if (strcmp(JsonMember->name.GetString(), itemstr) == 0) {
-                    if (JsonMember->value.GetType() == kObjectType) {
-                        auto ArrayObject = JsonMember->value.GetObject();
-                        for (auto ArrayMember = ArrayObject.MemberBegin(); ArrayMember != ArrayObject.MemberEnd(); ArrayMember++) {
-                            RebuildReferences(*Member, ArrayMember->name, ArrayMember->value, MaxDepth, CurrentDepth + 1);
-                            (**Member).m_key = itemstr;
-                            Member++;
-                        }
-
-                    } else {
-                        RebuildReferences(*Member, JsonMember->name, JsonMember->value, MaxDepth, CurrentDepth + 1);
-                        (**Member).m_key = itemstr;
+                if (JsonMember->value.GetType() == kObjectType) {
+                    auto ArrayObject = JsonMember->value.GetObject();
+                    for (auto ArrayMember = ArrayObject.MemberBegin(); ArrayMember != ArrayObject.MemberEnd(); ArrayMember++) {
+                        RebuildReferences(*Member, ArrayMember->name, ArrayMember->value, MaxDepth, CurrentDepth + 1);
+                        //(**Member).m_key = itemstr;
                         Member++;
                     }
-                //}
+
+                } else {
+                    RebuildReferences(*Member, JsonMember->name, JsonMember->value, MaxDepth, CurrentDepth + 1);
+                    (**Member).m_key = itemstr;
+                    Member++;
+                }
 
                 ArrayItem += 1;
                 if (ArrayItem == ArrayItemCount) {
@@ -469,6 +493,14 @@ void EntityTreeModel::Delete( const wxDataViewItem &item )
             Deleted = true;
             break;
         }
+
+        if (Member->value.IsObject() != false) {
+            if (&(Member->value.MemberBegin()->name) == (node->m_keyRef)) {
+                ParentRef->EraseMember(Member, Member + 1);
+                Deleted = true;
+                break;
+            }
+        }
     }
 
     assert(Deleted != false);
@@ -489,6 +521,8 @@ int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataView
         return 0;
 
     assert(Index != size_t(-1));
+
+    // If inserting an object, the object also needs an additional item[x] object before it can be inserted.
 
     ParentNode->Insert(Node, Index, Document);
     ItemAdded(*ParentItem, wxDataViewItem(Node));
