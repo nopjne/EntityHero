@@ -701,7 +701,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
         m_ctrl[page] = NULL;
 
     m_eventFromProgram = false;
-    SetIcon(wxICON(sample));
+    SetIcon(wx_small_xpm);
 
 #ifdef _DEBUG
     // Quickload something for debugging.
