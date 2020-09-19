@@ -160,6 +160,10 @@ public:
         }
     }
 
+    wxString GetOldValue() {
+        return m_OldValue;
+    }
+
     void SetNewValue(wxString NewValue) {
         m_NewValue = NewValue;
     }
@@ -326,6 +330,11 @@ private:
     wxString FindUnusedName(wxString Base);
     void OpenEntitiesFromResources(IDCT_FILE& FileInfo);
 
+    void NavBackward(wxCommandEvent& event);
+    void NavForward(wxCommandEvent& event);
+    void SearchBackward(wxCommandEvent& event);
+    void SearchForward(wxCommandEvent& event);
+
     wxNotebook* m_notebook;
 
     // the controls stored in the various tabs of the main notebook:
@@ -360,6 +369,10 @@ private:
     std::vector<CommandPattern> m_RedoStack;
     CommandPattern m_ChangeCmd;
     wxMenu* m_file_menu;
+    wxString m_OldValue;
+    wxCheckBox *m_MatchCaseCheck;
+    std::vector<wxDataViewItem> m_LastNavigation;
+    std::vector<wxDataViewItem> m_NextNavigation;
 
 private:
     // Flag used by OnListValueChanged(), see there.
@@ -599,6 +612,12 @@ enum
     ID_FILTER_SEARCH,
     ID_FILTER_SEARCH_RESOURCES,
 
+    ID_NAVIGTE_BACKWARD,
+    ID_NAVIGTE_FORWARD,
+    ID_SEARCH_BACKWARD,
+    ID_SEARCH_FORWARD,
+    ID_SEARCH_MATCH_CASE,
+
     ID_PREPEND_LIST     = 200,
     ID_DELETE_LIST      = 201,
     ID_GOTO             = 202,
@@ -633,6 +652,10 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_MENU(ID_REDO, MyFrame::Redo)
     EVT_MENU(ID_UNDO, MyFrame::Undo)
 
+    EVT_MENU(ID_NAVIGTE_BACKWARD, MyFrame::NavBackward)
+    EVT_MENU(ID_NAVIGTE_FORWARD, MyFrame::NavForward)
+
+
     EVT_MENU( ID_GET_PAGE_INFO, MyFrame::OnGetPageInfo )
     EVT_MENU( ID_DISABLE, MyFrame::OnDisable )
     EVT_MENU( ID_FOREGROUND_COLOUR, MyFrame::OnSetForegroundColour )
@@ -647,12 +670,14 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_MENU(ID_QF_INTRO_CUTSCENE, MyFrame::QuickFind)
     EVT_MENU(ID_QF_SPAWN_LOCATION, MyFrame::QuickFind)
     EVT_MENU(ID_QF_FIRST_ENCOUNTER, MyFrame::QuickFind)
-
+    
     EVT_NOTEBOOK_PAGE_CHANGED( wxID_ANY, MyFrame::OnPageChanged )
 
     EVT_BUTTON( ID_COLLAPSE, MyFrame::OnCollapse )
     EVT_BUTTON( ID_EXPAND, MyFrame::OnExpand )
     EVT_BUTTON( ID_SHOW_CURRENT, MyFrame::OnShowCurrent )
+    EVT_BUTTON(ID_SEARCH_BACKWARD, MyFrame::SearchBackward)
+    EVT_BUTTON(ID_SEARCH_FORWARD, MyFrame::SearchForward)
 
 
     EVT_DATAVIEW_ITEM_VALUE_CHANGED( ID_ENTITY_CTRL, MyFrame::OnValueChanged )
@@ -739,6 +764,8 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     wxMenu* edit_menu = new wxMenu;
     edit_menu->Append(ID_REDO, "Redo");
     edit_menu->Append(ID_UNDO, "Undo");
+    edit_menu->Append(ID_NAVIGTE_BACKWARD, "Navigate Previous (Ctrl+,)");
+    edit_menu->Append(ID_NAVIGTE_FORWARD, "Navigate Next (Ctrl+.)");
 
     wxMenu* quickfind_menu = new wxMenu;
     quickfind_menu->Append(ID_QF_INTRO_CUTSCENE, "Intro cutscene (intro_game_info_logic)");
@@ -792,11 +819,18 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
         PickRand_::PickRand("kK"),
         MeathookActive ? "" : "(inactive)");
 
+    wxSizer* navigationSizer = new wxBoxSizer(wxHORIZONTAL);
     m_FilterCtrl = new wxTextCtrl(firstPanel, ID_FILTER_SEARCH, "", wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
     m_FilterCtrl->SetHint("Search");
+    navigationSizer->Add(new wxButton(firstPanel, ID_SEARCH_BACKWARD, "<", wxDefaultPosition, wxSize(20, 20)), 0, wxGROW | wxALL, 1);
+    navigationSizer->Add(new wxButton(firstPanel, ID_SEARCH_FORWARD, ">", wxDefaultPosition, wxSize(20, 20)), 0, wxGROW | wxALL, 1);
+    navigationSizer->Add(m_FilterCtrl, 1, wxGROW | wxALL, 1);
+    m_MatchCaseCheck = new wxCheckBox(firstPanel, ID_SEARCH_MATCH_CASE, "Match case");
+    navigationSizer->Add(m_MatchCaseCheck, 0, wxGROW | wxALL, 1);
+
     wxSizer *firstPanelSz = new wxBoxSizer( wxVERTICAL );
     m_ctrl[Page_EntityView]->SetMinSize(wxSize(-1, 200));
-    firstPanelSz->Add(m_FilterCtrl, 0, wxGROW | wxALL, 5);
+    firstPanelSz->Add(navigationSizer, 0, wxGROW | wxALL, 5);
     firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW|wxALL, 5);
     firstPanelSz->Add(
         new wxStaticText(firstPanel, wxID_ANY, InterfaceText),
@@ -829,10 +863,13 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     SetSizerAndFit(mainSizer);
 
-    wxAcceleratorEntry entries[3];
+    wxAcceleratorEntry entries[5];
     entries[0].Set(wxACCEL_CTRL, (int)'z', ID_UNDO);
     entries[1].Set(wxACCEL_CTRL, (int)'y', ID_REDO);
     entries[2].Set(wxACCEL_CTRL, (int)'s', ID_SAVE_FILE);
+    entries[3].Set(wxACCEL_CTRL, (int)',', ID_NAVIGTE_BACKWARD);
+    entries[4].Set(wxACCEL_CTRL, (int)'.', ID_NAVIGTE_FORWARD);
+
     wxAcceleratorTable accel(ARRAYSIZE(entries), entries);
     SetAcceleratorTable(accel);
 }
@@ -1294,6 +1331,8 @@ void MyFrame::OnSelectionChanged(wxDataViewEvent& event)
         return;
     }
 
+    m_LastNavigation.push_back(event.GetItem());
+
     wxString title = m_entity_view_model->GetKey(event.GetItem());
     if (title.empty())
         title = "None";
@@ -1343,8 +1382,10 @@ void MyFrame::OnEditingStarted(wxDataViewEvent& event)
     wxLogMessage("wxEVT_DATAVIEW_ITEM_EDITING_STARTED, current value %s",
         value.GetString());
 
+    m_OldValue = value.GetString();
     model->GetValue(value, event.GetItem(), 0);
-    ((wxTextCtrl*)event.GetDataViewColumn()->GetRenderer()->GetEditorCtrl())->AutoComplete(new MyTextCompleter(value.GetString()));
+    auto EditBox = ((wxTextCtrl*)event.GetDataViewColumn()->GetRenderer()->GetEditorCtrl());
+    EditBox->AutoComplete(new MyTextCompleter(value.GetString()));
     m_ChangeCmd = std::make_shared<ChangeItemCommand>(event.GetItem(), m_entity_view_model, wxT(""), event.GetColumn());
 }
 
@@ -1355,9 +1396,11 @@ void MyFrame::OnEditingDone(wxDataViewEvent& event)
         ? wxString("unavailable because editing was cancelled")
         : event.GetValue().GetString());
 
-    if (event.IsEditCancelled() == false) {
+    bool Changed = (event.GetValue().GetString() != m_OldValue);
+    if ((event.IsEditCancelled() == false) && (Changed != false)) {
         ((ChangeItemCommand*)m_ChangeCmd.get())->SetNewValue(event.GetValue());
         PushCommand(m_ChangeCmd);
+        OutputDebugString(L"Saved change command\n");
     }
 }
 
@@ -1420,7 +1463,7 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
         } else {
             str += wxString(" ") + var.GetString();
         }
-        wxDataViewItem Select = m_entity_view_model->SelectText(str, false, true);
+        wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::FIRST, true, true);
         if (Select.IsOk() != false) {
             m_ctrl[0]->SetCurrentItem(Select);
             m_ctrl[0]->EnsureVisible(Select);
@@ -1445,7 +1488,7 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
                 // Find entityDef node inside childeren.
                 size_t Counter = 0;
                 wxString EntityDefStr("entityDef ");
-                auto NextEntityDef = Node->FindByName(0, 1, EntityDefStr, 0, Counter, false);
+                auto NextEntityDef = Node->FindByName(0, 1, EntityDefStr, 0, Counter, false, true);
 
                 assert(NextEntityDef != nullptr);
 
@@ -1463,7 +1506,7 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             if (DoRename != false) {
                 size_t Counter = 0;
                 EntityTreeModelNode* SecondNode = ((DuplicateSubTreeCommand*)Cmd.get())->m_NewItem;
-                SecondNode = SecondNode->FindByName(0, 1, BaseName, 0, Counter, true);
+                SecondNode = SecondNode->FindByName(0, 1, BaseName, 0, Counter, true, true);
                 if (SecondNode != nullptr) {
                     EntityTreeModelNode* SecondParentNode = SecondNode->GetParent();
                     GroupedCommand Group = std::make_shared<_GroupedCommand>();
@@ -1638,7 +1681,7 @@ void MyFrame::QuickFind(wxCommandEvent& event)
         break;
     };
 
-    wxDataViewItem Select = m_entity_view_model->SelectText(str);
+    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
@@ -1676,7 +1719,7 @@ void MyFrame::OnFilterType(wxCommandEvent& event)
 void MyFrame::OnFilterSearch(wxCommandEvent& event)
 {
     wxString Text = m_FilterCtrl->GetValue();
-    wxDataViewItem Select = m_entity_view_model->SelectText(Text);
+    wxDataViewItem Select = m_entity_view_model->SelectText(Text, eSearchDirection::NEXT, false, m_MatchCaseCheck->IsChecked());
 
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
@@ -1950,7 +1993,8 @@ void MyFrame::OpenFile(wxCommandEvent& event)
         MemoryStream memstream(DecompressedData, DecompressedSize);
         m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
         if (m_Document.HasParseError() != false) {
-            wxMessageBox(_("Error parsing the entities definition file. (Syntax error)."), _("Error"), wxOK, this);
+            wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu", (long long)m_Document.GetErrorOffset());
+            wxMessageBox(error, _("Error"), wxOK | wxICON_ERROR, this);
         }
 
     } else {
@@ -2035,4 +2079,58 @@ void MyFrame::Redo(wxCommandEvent& event)
     m_RedoStack.pop_back();
     Top->Execute();
     m_UndoStack.push_back(Top);
+}
+
+void MyFrame::NavBackward(wxCommandEvent& event)
+{
+    if (m_LastNavigation.empty() != false) {
+        return;
+    }
+
+    wxDataViewItem CurrentNavLocation = m_LastNavigation.back();
+    m_LastNavigation.pop_back();
+    m_NextNavigation.push_back(CurrentNavLocation);
+
+    // Select and make visible.
+    if (CurrentNavLocation.IsOk() != false) {
+        m_ctrl[0]->SetCurrentItem(CurrentNavLocation);
+        m_ctrl[0]->EnsureVisible(CurrentNavLocation);
+    }
+}
+
+void MyFrame::NavForward(wxCommandEvent& event)
+{
+    if (m_NextNavigation.empty() != false) {
+        return;
+    }
+
+    wxDataViewItem CurrentNavLocation = m_NextNavigation.back();
+    m_NextNavigation.pop_back();
+    m_LastNavigation.push_back(CurrentNavLocation);
+
+    // Select and make visible.
+    if (CurrentNavLocation.IsOk() != false) {
+        m_ctrl[0]->SetCurrentItem(CurrentNavLocation);
+        m_ctrl[0]->EnsureVisible(CurrentNavLocation);
+    }
+}
+
+void MyFrame::SearchBackward(wxCommandEvent& event)
+{
+    wxString str = m_FilterCtrl->GetValue().c_str();
+    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::PREV, true, m_MatchCaseCheck->IsChecked());
+    if (Select.IsOk() != false) {
+        m_ctrl[0]->SetCurrentItem(Select);
+        m_ctrl[0]->EnsureVisible(Select);
+    }
+}
+
+void MyFrame::SearchForward(wxCommandEvent& event)
+{
+    wxString str = m_FilterCtrl->GetValue().c_str();
+    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, true, m_MatchCaseCheck->IsChecked());
+    if (Select.IsOk() != false) {
+        m_ctrl[0]->SetCurrentItem(Select);
+        m_ctrl[0]->EnsureVisible(Select);
+    }
 }
