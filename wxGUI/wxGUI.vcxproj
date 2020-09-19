@@ -191,7 +191,15 @@
     <ClInclude Include="Dialogs.h" />
     <ClInclude Include="entityviewmodel.h" />
     <ClInclude Include="FileTreeModel.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="ResourcesParser.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="EntityHero.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="icon.ico" />
+    <Image Include="Papirus-Team-Papirus-Apps-Freeciv-server.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
