@@ -127,7 +127,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>../wxWidget/lib/vc_x64_lib/mswu/;../wxWidget/include/;.;../rapidjson/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../RPCInterface/;../wxWidget/lib/vc_x64_lib/mswu/;../wxWidget/include/;.;../rapidjson/</AdditionalIncludeDirectories>
       <TreatWarningAsError>true</TreatWarningAsError>
     </ClCompile>
     <Link>
@@ -145,7 +145,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>../wxWidget/lib/vc_x64_lib/mswu/;../wxWidget/include/;.;../rapidjson/</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>../RPCInterface/;../wxWidget/lib/vc_x64_lib/mswu/;../wxWidget/include/;.;../rapidjson/</AdditionalIncludeDirectories>
       <TreatWarningAsError>true</TreatWarningAsError>
     </ClCompile>
     <Link>
@@ -158,6 +158,8 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\RPCInterface\meathook_interface_c.c" />
+    <ClCompile Include="..\RPCInterface\mhclient.cpp" />
     <ClCompile Include="dataview.cpp" />
     <ClCompile Include="Dialogs.cpp" />
     <ClCompile Include="FileTreeModel.cpp" />
@@ -187,6 +189,8 @@
     <ClInclude Include="..\rapidjson\stream.h" />
     <ClInclude Include="..\rapidjson\stringbuffer.h" />
     <ClInclude Include="..\rapidjson\writer.h" />
+    <ClInclude Include="..\RPCInterface\meathook_interface.h" />
+    <ClInclude Include="..\RPCInterface\mhclient.h" />
     <ClInclude Include="Command.h" />
     <ClInclude Include="Dialogs.h" />
     <ClInclude Include="entityviewmodel.h" />

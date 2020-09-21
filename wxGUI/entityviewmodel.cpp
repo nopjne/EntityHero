@@ -282,16 +282,17 @@ wxDataViewItem EntityTreeModel::SelectText(wxString& Text, eSearchDirection Sear
         Index = 0;
     }
 
-    if (m_PreviousToFind != Text) {
-        Index = 0;
-    }
-
     size_t PrevIndex = Index;
     if (SearchDir == eSearchDirection::NEXT) {
         Index += 1;
 
     } else if (SearchDir == eSearchDirection::PREV) {
         Index -= 1;
+    }
+
+    if (m_PreviousToFind != Text) {
+        Index = 0;
+        PrevIndex = 0;
     }
 
     m_PreviousToFind = Text;

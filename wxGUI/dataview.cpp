@@ -32,6 +32,8 @@
 #include "wx/listctrl.h"
 #include "wx/textcompleter.h"
 #include "FileTreeModel.h"
+#include "wx/timer.h"
+#include <mhclient.h>
 
 #include <rapidjson.h>
 #include <document.h>     // rapidjson's DOM-style API
@@ -334,6 +336,11 @@ private:
     void NavForward(wxCommandEvent& event);
     void SearchBackward(wxCommandEvent& event);
     void SearchForward(wxCommandEvent& event);
+    void MHPause(wxCommandEvent& event);
+    void MHReload(wxCommandEvent& event);
+    void MHLocation(wxCommandEvent& event);
+    void MHRotation(wxCommandEvent& event);
+    void MHStatusCheck(wxTimerEvent& event);
 
     wxNotebook* m_notebook;
 
@@ -373,6 +380,10 @@ private:
     wxCheckBox *m_MatchCaseCheck;
     std::vector<wxDataViewItem> m_LastNavigation;
     std::vector<wxDataViewItem> m_NextNavigation;
+    MeathookInterface m_MeatHook;
+    wxTimer m_MHStatusTimer;
+    wxStaticText* m_MHInterfaceStatus;
+    wxString m_MhText;
 
 private:
     // Flag used by OnListValueChanged(), see there.
@@ -606,9 +617,10 @@ enum
     ID_SELECT_NINTH     = 103,
     ID_COLLAPSE         = 104,
     ID_EXPAND           = 105,
-    ID_SHOW_CURRENT,
-    ID_SET_NINTH_CURRENT,
-    ID_CHANGE_NINTH_TITLE,
+    ID_MH_PAUSE,
+    ID_MH_RELOAD,
+    ID_MH_COPY_LOCATION,
+    ID_MH_COPY_ROTATION,
     ID_FILTER_SEARCH,
     ID_FILTER_SEARCH_RESOURCES,
 
@@ -617,6 +629,7 @@ enum
     ID_SEARCH_BACKWARD,
     ID_SEARCH_FORWARD,
     ID_SEARCH_MATCH_CASE,
+    ID_CHECK_MH_STATUS,
 
     ID_PREPEND_LIST     = 200,
     ID_DELETE_LIST      = 201,
@@ -675,9 +688,12 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 
     EVT_BUTTON( ID_COLLAPSE, MyFrame::OnCollapse )
     EVT_BUTTON( ID_EXPAND, MyFrame::OnExpand )
-    EVT_BUTTON( ID_SHOW_CURRENT, MyFrame::OnShowCurrent )
     EVT_BUTTON(ID_SEARCH_BACKWARD, MyFrame::SearchBackward)
     EVT_BUTTON(ID_SEARCH_FORWARD, MyFrame::SearchForward)
+    EVT_BUTTON(ID_MH_PAUSE, MyFrame::MHPause)
+    EVT_BUTTON(ID_MH_RELOAD, MyFrame::MHReload)
+    EVT_BUTTON(ID_MH_COPY_LOCATION, MyFrame::MHLocation)
+    EVT_BUTTON(ID_MH_COPY_ROTATION, MyFrame::MHRotation)
 
 
     EVT_DATAVIEW_ITEM_VALUE_CHANGED( ID_ENTITY_CTRL, MyFrame::OnValueChanged )
@@ -712,7 +728,7 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 
     EVT_TEXT(ID_FILTER_SEARCH_RESOURCES, MyFrame::OnFilterTypeResources)
     EVT_TEXT_ENTER(ID_FILTER_SEARCH_RESOURCES, MyFrame::OnFilterSearchResources)
-
+    EVT_TIMER(ID_CHECK_MH_STATUS, MyFrame::MHStatusCheck)
 wxEND_EVENT_TABLE()
 
 MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int h):
@@ -794,13 +810,13 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     const wxSizerFlags border = wxSizerFlags().DoubleBorder();
     wxBoxSizer *sizerCurrent = new wxBoxSizer(wxHORIZONTAL);
 
-    sizerCurrent->Add(new wxButton(firstPanel, ID_SHOW_CURRENT,
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_PAUSE,
                                    "&Pause"), border);
-    sizerCurrent->Add(new wxButton(firstPanel, ID_SHOW_CURRENT,
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_RELOAD,
                                    "&Reload level"), border);
-    sizerCurrent->Add(new wxButton(firstPanel, ID_SET_NINTH_CURRENT,
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_COPY_LOCATION,
                                    "Copy current &location"), border);
-    sizerCurrent->Add(new wxButton(firstPanel, ID_CHANGE_NINTH_TITLE,
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_COPY_ROTATION,
                                    "Copy current &rotation"), border);
 
     // 
@@ -808,7 +824,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     //
     srand(timeGetTime());
     struct PickRand_ { static char PickRand(const char *str) { size_t len = strlen(str); return str[rand() % (len - 1)]; } };
-    wxString InterfaceText = wxString::Format("%c%c%c%c%c%c%c%c interface: %s",
+    m_MhText = wxString::Format("%c%c%c%c%c%c%c%c interface:",
         PickRand_::PickRand("Mm"),
         PickRand_::PickRand("eE3é"),
         PickRand_::PickRand("aA4"),
@@ -816,8 +832,10 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
         PickRand_::PickRand("hH"),
         PickRand_::PickRand("oO0"),
         PickRand_::PickRand("oO0"),
-        PickRand_::PickRand("kK"),
-        MeathookActive ? "" : "(inactive)");
+        PickRand_::PickRand("kK"));
+
+    wxString InterfaceText = wxString().Format("%s %s", m_MhText, MeathookActive ? L"" : L"(inactive)");
+    m_MHInterfaceStatus = new wxStaticText(firstPanel, wxID_ANY, InterfaceText);
 
     wxSizer* navigationSizer = new wxBoxSizer(wxHORIZONTAL);
     m_FilterCtrl = new wxTextCtrl(firstPanel, ID_FILTER_SEARCH, "", wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
@@ -832,9 +850,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     m_ctrl[Page_EntityView]->SetMinSize(wxSize(-1, 200));
     firstPanelSz->Add(navigationSizer, 0, wxGROW | wxALL, 5);
     firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW|wxALL, 5);
-    firstPanelSz->Add(
-        new wxStaticText(firstPanel, wxID_ANY, InterfaceText),
-        0, wxGROW|wxALL, 5);
+    firstPanelSz->Add(m_MHInterfaceStatus, 0, wxGROW | wxALL, 5);
 
     firstPanelSz->Add(sizerCurrent);
     firstPanel->SetSizerAndFit(firstPanelSz);
@@ -872,6 +888,9 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     wxAcceleratorTable accel(ARRAYSIZE(entries), entries);
     SetAcceleratorTable(accel);
+
+    m_MHStatusTimer.SetOwner(this, ID_CHECK_MH_STATUS);
+    m_MHStatusTimer.Start(5000);
 }
 
 MyFrame::~MyFrame()
@@ -2133,4 +2152,32 @@ void MyFrame::SearchForward(wxCommandEvent& event)
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
     }
+}
+
+void MyFrame::MHPause(wxCommandEvent& event)
+{
+    m_MeatHook.ExecuteConsoleCommand((unsigned char*)"noclip");
+    m_MeatHook.ExecuteConsoleCommand((unsigned char*)"notarget");
+}
+
+void MyFrame::MHReload(wxCommandEvent& event)
+{
+
+}
+
+void MyFrame::MHLocation(wxCommandEvent& event)
+{
+    char Info[MAX_PATH];
+    m_MeatHook.GetSpawnInfo((unsigned char*)Info);
+}
+
+void MyFrame::MHRotation(wxCommandEvent& event)
+{
+
+}
+
+void MyFrame::MHStatusCheck(wxTimerEvent& event)
+{
+    wxString InterfaceText = wxString::Format("!%s %s", m_MhText, m_MeatHook.m_Initialized ? "" : "(inactive)");
+    m_MHInterfaceStatus->SetLabelText(InterfaceText);
 }

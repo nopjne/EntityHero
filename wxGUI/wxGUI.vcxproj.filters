@@ -19,6 +19,9 @@
     <Filter Include="Source Files\GUI">
       <UniqueIdentifier>{d78b4c3e-8a1c-4859-a21b-e8c792282110}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\RPCInterface">
+      <UniqueIdentifier>{15cb5258-631e-4c4d-b038-4752964d4333}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -41,6 +44,12 @@
     </ClCompile>
     <ClCompile Include="FileTreeModel.cpp">
       <Filter>Source Files\GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="..\RPCInterface\mhclient.cpp">
+      <Filter>Source Files\RPCInterface</Filter>
+    </ClCompile>
+    <ClCompile Include="..\RPCInterface\meathook_interface_c.c">
+      <Filter>Source Files\RPCInterface</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -121,6 +130,12 @@
     </ClInclude>
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\RPCInterface\meathook_interface.h">
+      <Filter>Source Files\RPCInterface</Filter>
+    </ClInclude>
+    <ClInclude Include="..\RPCInterface\mhclient.h">
+      <Filter>Source Files\RPCInterface</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
