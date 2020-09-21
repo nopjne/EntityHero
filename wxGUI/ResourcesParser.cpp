@@ -103,39 +103,62 @@ bool IDCLReader::ParseFileList() {
         //    math NAME_ID * 8
         //    math NAME_ID + DUMMY7_OFF
 
+#if 1
         // TODOne: The index table should really just be loaded wholesale.
-        //size_t TypeIdOffset = FileIdOffset + sizeof(long long) * m_FileList[i].FileInfo.TypeId;
-        //size_t NameIdOffset = FileIdOffset + sizeof(long long) * (m_FileList[i].FileInfo.NameId + 1);
+        size_t TypeIdOffset = FileIdOffset + sizeof(long long) * m_FileList[i].FileInfo.TypeId;
+        size_t NameIdOffset = FileIdOffset + sizeof(long long) * (m_FileList[i].FileInfo.NameId + 1);
 
         //    savepos TMP
-        //size_t TmpOffset = ftell(Handle);
+        size_t TmpOffset = ftell(Handle);
 
         //    goto TYPE_ID
         //    get TYPE_ID longlong
         //    goto NAME_ID
         //    get NAME_ID longlong
-        //unsigned long long TypeId;
-        //unsigned long long NameId;
-        //fseek(Handle, (long)TypeIdOffset, SEEK_SET);
-        //fread(&TypeId, sizeof(TypeId), 1, Handle);
-        //fseek(Handle, (long)NameIdOffset, SEEK_SET);
-        //fread(&NameId, sizeof(NameId), 1, Handle);
+        unsigned long long TypeId;
+        unsigned long long NameId;
+        fseek(Handle, (long)TypeIdOffset, SEEK_SET);
+        fread(&TypeId, sizeof(TypeId), 1, Handle);
+        fseek(Handle, (long)NameIdOffset, SEEK_SET);
+        fread(&NameId, sizeof(NameId), 1, Handle);
 
         //    goto TMP
-        //fseek(Handle, (long)TmpOffset, SEEK_SET);
+        fseek(Handle, (long)TmpOffset, SEEK_SET);
         
         //    #getarray STR1 0 TYPE_ID
         //    getarray STR2 0 NAME_ID
         //    #string NAME p "%s/%s" STR1 STR2
         //    string NAME p "%s" STR2
+#else
         size_t TypeId = IndexTable[m_FileList[i].FileInfo.TypeId];
         size_t NameId = IndexTable[(m_FileList[i].FileInfo.NameId + 1)];
+#endif
         m_FileList[i].Size = m_FileList[i].FileInfo.CompressedSize;
         m_FileList[i].SizeUncompressed = m_FileList[i].FileInfo.UncompressedSize;
         m_FileList[i].Offset = m_FileList[i].FileInfo.Offset;
-        m_FileList[i].FileName = m_IdclStrings[NameId].String;
-        m_FileList[i].TypeName = m_IdclStrings[TypeId].String;
+        if (NameId < m_IdclStrings.size()) {
+            m_FileList[i].FileName = m_IdclStrings[NameId].String;
+
+        } else {
+            char str[256];
+            sprintf_s(str, "Invalid NameID: %llX Ofs:0x%llu", TypeId, TypeIdOffset);
+            m_FileList[i].FileName = str;
+        }
+
+        if (TypeId < m_IdclStrings.size()) {
+            m_FileList[i].TypeName = m_IdclStrings[TypeId].String;
+
+        } else {
+            char str[256];
+            sprintf_s(str, "Invalid TypeID: %llX Ofs:0x%llu", TypeId, TypeIdOffset);
+            m_FileList[i].TypeName = str;
+        }
         m_FileList[i].InfoOffset = Header.InfoOffset + sizeof(m_FileList[i].FileInfo) * i;
+
+#ifdef _DEBUG
+        MaxId = std::max(MaxId, TypeId);
+        MaxId = std::max(MaxId, NameId + 1);
+#endif
     }
 
     return true;
