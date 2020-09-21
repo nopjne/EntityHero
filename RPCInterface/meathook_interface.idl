@@ -1,0 +1,12 @@
+//file meathook_interface.idl
+[
+    uuid(1c9ca7c8-d421-482d-b85d-79fac33b2658),
+    version(1.0)
+]
+interface meathook_interface
+{
+    void ExecuteConsoleCommand([in, string] unsigned char * pszString);
+    void PushEntitiesFile([in] int Size, [in, size_is(Size)] unsigned char * pBuffer );
+    void GetEntitiesFile([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer );
+    void GetSpawnInfo([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer);
+}
