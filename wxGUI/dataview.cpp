@@ -32,6 +32,8 @@
 #include "wx/listctrl.h"
 #include "wx/textcompleter.h"
 #include "FileTreeModel.h"
+#include "wx/timer.h"
+#include <mhclient.h>
 
 #include <rapidjson.h>
 #include <document.h>     // rapidjson's DOM-style API
@@ -48,12 +50,16 @@
 #include <sstream>
 #include "Command.h"
 #include "Dialogs.h"
+#include "EntityHelper.h"
+#include "EventDescription.h"
 
 using namespace rapidjson;
 using namespace std;
 
+void LoadEventDescriptor(void);
+
 std::map<std::string, std::set<std::string>> ValueMap;
-int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize);
+int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
 int CompressEntities(byte* uncompressedData, size_t size, char** output, size_t& outputSize);
 
@@ -139,6 +145,48 @@ public:
     void Revert() {
         m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument);
         m_Deleted = false;
+    }
+};
+
+class InsertSubTreeCommand : public _CommandPattern {
+    wxDataViewItem m_Item;
+    wxDataViewItem m_ParentItem;
+    Document& m_JsonDocument;
+    wxObjectDataPtr<EntityTreeModel> m_Model;
+    size_t m_Position;
+    bool m_Deleted;
+    rapidjson::Value m_Key;
+    rapidjson::Value m_Value;
+    bool m_AsObject;
+public:
+    InsertSubTreeCommand(wxDataViewItem Item, wxDataViewItem Parent, size_t Position, wxObjectDataPtr<EntityTreeModel> Model, Document& JsonDocument, bool AsObject = false) :
+        m_Item(Item), m_ParentItem(Parent), m_Position(Position), m_Model(Model), m_JsonDocument(JsonDocument), m_AsObject(AsObject) {
+
+        EntityTreeModelNode* Node = (EntityTreeModelNode*)Item.GetID();
+        m_Position = Position;
+        m_ParentItem = Parent;
+        m_Deleted = false;
+        m_Key = *Node->m_keyRef;
+        m_Value = *Node->m_valueRef;
+    }
+
+    ~InsertSubTreeCommand() {
+        if (m_Deleted != false) {
+            delete (EntityTreeModelNode*)m_Item.GetID();
+        }
+    }
+
+    void Execute() {
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject);
+        m_Deleted = false;
+    }
+
+    void Revert() {
+        m_Model->Delete(m_Item);
+        m_Deleted = true;
+        EntityTreeModelNode* Node = (EntityTreeModelNode*)m_Item.GetID();
+        Node->m_keyRef = &m_Key;
+        Node->m_valueRef = &m_Value;
     }
 };
 
@@ -273,6 +321,7 @@ private:
     void SaveFileAs(wxCommandEvent& event);
     void ExportFile(wxCommandEvent& event);
     void OpenFile(wxCommandEvent& event);
+    void OpenFromMeathook(wxCommandEvent& event);
     void ImportFile(wxCommandEvent& event);
 
     void Undo(wxCommandEvent& event);
@@ -334,6 +383,13 @@ private:
     void NavForward(wxCommandEvent& event);
     void SearchBackward(wxCommandEvent& event);
     void SearchForward(wxCommandEvent& event);
+    void MHPause(wxCommandEvent& event);
+    void MHReload(wxCommandEvent& event);
+    void MHStatusCheck(wxTimerEvent& event);
+    void ResolveEncounterSpawnChange(EntityTreeModelNode* EncounterNode, wxString OldValue);
+    bool SetLocationNodeFromMH(EntityTreeModelNode* Node);
+    bool SetRotationNodeFromMH(EntityTreeModelNode* Node);
+    bool OpenFileInternal(wxString FilePath);
 
     wxNotebook* m_notebook;
 
@@ -365,6 +421,7 @@ private:
     wxTextCtrl* m_ResourceCtrl;
     wxPopupWindow *m_Popup;
     wxString m_CurrentlyLoadedFileName;
+    bool m_CurrentlyLoadedFileCompressed;
     std::vector<CommandPattern> m_UndoStack;
     std::vector<CommandPattern> m_RedoStack;
     CommandPattern m_ChangeCmd;
@@ -373,6 +430,10 @@ private:
     wxCheckBox *m_MatchCaseCheck;
     std::vector<wxDataViewItem> m_LastNavigation;
     std::vector<wxDataViewItem> m_NextNavigation;
+    MeathookInterface m_MeatHook;
+    wxTimer m_MHStatusTimer;
+    wxStaticText* m_MHInterfaceStatus;
+    wxString m_MhText;
 
 private:
     // Flag used by OnListValueChanged(), see there.
@@ -543,8 +604,10 @@ bool MyApp::OnInit()
     if ( !wxApp::OnInit() )
         return false;
 
+    LoadEventDescriptor();
+
     MyFrame *frame =
-        new MyFrame(NULL, "EntityHero v0.1 (by Scorp0rX0r)", 40, 40, 1000, 540);
+        new MyFrame(NULL, "EntityHero v0.2 (by Scorp0rX0r)", 40, 40, 1000, 540);
 
     frame->Show(true);
     return true;
@@ -569,6 +632,7 @@ enum
     ID_INC_INDENT,
     ID_DEC_INDENT,
     ID_OPEN_FILE,
+    ID_OPEN_MEATHOOK,
     ID_SAVE_FILE,
     ID_SAVE_FILE_AS,
     ID_SAVE_TEXT_FILE,
@@ -606,9 +670,8 @@ enum
     ID_SELECT_NINTH     = 103,
     ID_COLLAPSE         = 104,
     ID_EXPAND           = 105,
-    ID_SHOW_CURRENT,
-    ID_SET_NINTH_CURRENT,
-    ID_CHANGE_NINTH_TITLE,
+    ID_MH_PAUSE,
+    ID_MH_RELOAD,
     ID_FILTER_SEARCH,
     ID_FILTER_SEARCH_RESOURCES,
 
@@ -617,6 +680,7 @@ enum
     ID_SEARCH_BACKWARD,
     ID_SEARCH_FORWARD,
     ID_SEARCH_MATCH_CASE,
+    ID_CHECK_MH_STATUS,
 
     ID_PREPEND_LIST     = 200,
     ID_DELETE_LIST      = 201,
@@ -646,6 +710,7 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_MENU(ID_SAVE_TEXT_FILE, MyFrame::ExportFile)
 
     EVT_MENU( ID_OPEN_FILE, MyFrame::OpenFile )
+    EVT_MENU(ID_OPEN_MEATHOOK, MyFrame::OpenFromMeathook)
     EVT_MENU(ID_OPEN_TEXT_FILE, MyFrame::ImportFile)
     EVT_MENU( ID_CLEARLOG, MyFrame::OnClearLog )
 
@@ -675,10 +740,10 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 
     EVT_BUTTON( ID_COLLAPSE, MyFrame::OnCollapse )
     EVT_BUTTON( ID_EXPAND, MyFrame::OnExpand )
-    EVT_BUTTON( ID_SHOW_CURRENT, MyFrame::OnShowCurrent )
     EVT_BUTTON(ID_SEARCH_BACKWARD, MyFrame::SearchBackward)
     EVT_BUTTON(ID_SEARCH_FORWARD, MyFrame::SearchForward)
-
+    EVT_BUTTON(ID_MH_PAUSE, MyFrame::MHPause)
+    EVT_BUTTON(ID_MH_RELOAD, MyFrame::MHReload)
 
     EVT_DATAVIEW_ITEM_VALUE_CHANGED( ID_ENTITY_CTRL, MyFrame::OnValueChanged )
 
@@ -712,7 +777,7 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 
     EVT_TEXT(ID_FILTER_SEARCH_RESOURCES, MyFrame::OnFilterTypeResources)
     EVT_TEXT_ENTER(ID_FILTER_SEARCH_RESOURCES, MyFrame::OnFilterSearchResources)
-
+    EVT_TIMER(ID_CHECK_MH_STATUS, MyFrame::MHStatusCheck)
 wxEND_EVENT_TABLE()
 
 MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int h):
@@ -752,6 +817,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     // ----------------
     wxMenu *file_menu = new wxMenu;
     file_menu->Append(ID_OPEN_FILE, "&Open");
+    file_menu->Append(ID_OPEN_MEATHOOK, "Open from MH");
     file_menu->Append(ID_SAVE_FILE, "&Save");
     file_menu->Append(ID_SAVE_FILE_AS, "Save&As");
     file_menu->AppendSeparator();
@@ -793,22 +859,18 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     const wxSizerFlags border = wxSizerFlags().DoubleBorder();
     wxBoxSizer *sizerCurrent = new wxBoxSizer(wxHORIZONTAL);
-
-    sizerCurrent->Add(new wxButton(firstPanel, ID_SHOW_CURRENT,
+    sizerCurrent->SetMinSize(wxSize(500,0));
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_PAUSE,
                                    "&Pause"), border);
-    sizerCurrent->Add(new wxButton(firstPanel, ID_SHOW_CURRENT,
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_RELOAD,
                                    "&Reload level"), border);
-    sizerCurrent->Add(new wxButton(firstPanel, ID_SET_NINTH_CURRENT,
-                                   "Copy current &location"), border);
-    sizerCurrent->Add(new wxButton(firstPanel, ID_CHANGE_NINTH_TITLE,
-                                   "Copy current &rotation"), border);
 
     // 
     // Per request from the creator of meathook, randomize the displayed meathook name.
     //
     srand(timeGetTime());
     struct PickRand_ { static char PickRand(const char *str) { size_t len = strlen(str); return str[rand() % (len - 1)]; } };
-    wxString InterfaceText = wxString::Format("%c%c%c%c%c%c%c%c interface: %s",
+    m_MhText = wxString::Format("%c%c%c%c%c%c%c%c interface:",
         PickRand_::PickRand("Mm"),
         PickRand_::PickRand("eE3é"),
         PickRand_::PickRand("aA4"),
@@ -816,8 +878,11 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
         PickRand_::PickRand("hH"),
         PickRand_::PickRand("oO0"),
         PickRand_::PickRand("oO0"),
-        PickRand_::PickRand("kK"),
-        MeathookActive ? "" : "(inactive)");
+        PickRand_::PickRand("kK"));
+
+    wxString InterfaceText = wxString().Format("%s %s", m_MhText, MeathookActive ? L"" : L"(inactive)");
+    m_file_menu->Enable(ID_OPEN_MEATHOOK, m_MeatHook.m_Initialized);
+    m_MHInterfaceStatus = new wxStaticText(firstPanel, wxID_ANY, InterfaceText);
 
     wxSizer* navigationSizer = new wxBoxSizer(wxHORIZONTAL);
     m_FilterCtrl = new wxTextCtrl(firstPanel, ID_FILTER_SEARCH, "", wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
@@ -832,9 +897,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     m_ctrl[Page_EntityView]->SetMinSize(wxSize(-1, 200));
     firstPanelSz->Add(navigationSizer, 0, wxGROW | wxALL, 5);
     firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW|wxALL, 5);
-    firstPanelSz->Add(
-        new wxStaticText(firstPanel, wxID_ANY, InterfaceText),
-        0, wxGROW|wxALL, 5);
+    firstPanelSz->Add(m_MHInterfaceStatus, 0, wxGROW | wxALL, 5);
 
     firstPanelSz->Add(sizerCurrent);
     firstPanel->SetSizerAndFit(firstPanelSz);
@@ -872,6 +935,9 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     wxAcceleratorTable accel(ARRAYSIZE(entries), entries);
     SetAcceleratorTable(accel);
+
+    m_MHStatusTimer.SetOwner(this, ID_CHECK_MH_STATUS);
+    m_MHStatusTimer.Start(5000);
 }
 
 MyFrame::~MyFrame()
@@ -926,6 +992,8 @@ void MyFrame::BuildDataViewCtrl(wxPanel* parent, wxSizer* sizer, unsigned int nP
                                       wxDATAVIEW_COL_RESIZABLE );
             column1->SetMinWidth(FromDIP(150)); // this column can't be resized to be smaller
             m_ctrl[Page_EntityView]->AppendColumn( column1 );
+
+            BuildEncounterToEntityMap((EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID()));
         }
         break;
     case Page_ResourcesView:
@@ -1399,8 +1467,11 @@ void MyFrame::OnEditingDone(wxDataViewEvent& event)
     bool Changed = (event.GetValue().GetString() != m_OldValue);
     if ((event.IsEditCancelled() == false) && (Changed != false)) {
         ((ChangeItemCommand*)m_ChangeCmd.get())->SetNewValue(event.GetValue());
+        m_ChangeCmd->Execute();
         PushCommand(m_ChangeCmd);
         OutputDebugString(L"Saved change command\n");
+
+        ResolveEncounterSpawnChange((EntityTreeModelNode*)(event.GetItem().GetID()), m_OldValue);
     }
 }
 
@@ -1442,7 +1513,9 @@ enum CONTEXT_ID {
     CID_EDIT_KEY_NAME,
     CID_ADD_ITEM,
     CID_OPEN_FILE,
-    CID_REINJECT_FILE
+    CID_REINJECT_FILE,
+    CID_MH_GET_POSITION,
+    CID_MH_GET_ROTATION,
 };
 
 void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
@@ -1591,6 +1664,18 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             OpenEntitiesFromResources(FileInfo);
         }
         break;
+        case CID_MH_GET_POSITION:
+        {
+            EntityTreeModelNode* Node = (EntityTreeModelNode*)Item.GetID();
+            SetLocationNodeFromMH(Node);
+        }
+        break;
+        case CID_MH_GET_ROTATION:
+        {
+            EntityTreeModelNode* Node = (EntityTreeModelNode*)Item.GetID();
+            SetRotationNodeFromMH(Node);
+        }
+        break;
     }
 }
 
@@ -1613,7 +1698,7 @@ void MyFrame::OpenEntitiesFromResources(IDCT_FILE &FileInfo)
     // Oodle decompress.
     char* DecompressedData = nullptr;
     size_t DecompressedSize;
-    int Result = DecompressEntities(&Stream, &DecompressedData, DecompressedSize);
+    int Result = DecompressEntities(&Stream, &DecompressedData, DecompressedSize, FileInfo.Size);
     if (Result == S_OK) {
         MemoryStream memstream(DecompressedData, DecompressedSize);
         m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
@@ -1639,6 +1724,7 @@ void MyFrame::OpenEntitiesFromResources(IDCT_FILE &FileInfo)
 
     ConstructTreeView();
 }
+
 void MyFrame::OnContextMenu( wxDataViewEvent &event )
 {
     wxString title = m_entity_view_model->GetKey( event.GetItem() );
@@ -1653,6 +1739,20 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     menu.Append(CID_EDIT_KEY_NAME, "Edit key name");
     menu.Append(CID_ADD_ITEM, "Add new node");
 #endif
+
+    if (title == "spawnPosition") {
+        menu.Append(CID_MH_GET_POSITION, "Get position from MH");
+        if (m_MeatHook.m_Initialized == false) {
+            menu.Enable(CID_MH_GET_POSITION, false);
+        }
+    }
+
+    if (title == "spawnOrientation") {
+        menu.Append(CID_MH_GET_ROTATION, "Get rotation from MH");
+        if (m_MeatHook.m_Initialized == false) {
+            menu.Enable(CID_MH_GET_ROTATION, false);
+        }
+    }
 
     if (m_entity_view_model->IsContainer(event.GetItem()) == false) {
         if (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false) {
@@ -1808,18 +1908,37 @@ void MyFrame::SaveFile(wxCommandEvent& event)
 
     if ((m_CurrentlyLoadedFileName != "") && (m_CurrentlyLoadedFileName.rfind(".entities") != wxString::npos)) {
         // Recompress the file.
-        byte *Data = nullptr;
-        size_t DataSize = 0;
-        StringBuffer buffer;
-        rapidjson::PrettyWriter<rapidjson::StringBuffer,
-            rapidjson::UTF8<char>,
-            rapidjson::UTF8<char>,
-            rapidjson::CrtAllocator,
-            rapidjson::kWriteValidateEncodingFlag |
-            rapidjson::kWriteNanAndInfFlag> writer(buffer);
-        writer.SetIndent('\t', 1);
-        m_Document.Accept(writer, 0);
-        CompressEntities(m_CurrentlyLoadedFileName.c_str().AsChar(), (byte*)buffer.GetString(), buffer.GetSize());
+        if (m_CurrentlyLoadedFileCompressed != false) {
+            byte* Data = nullptr;
+            size_t DataSize = 0;
+            StringBuffer buffer;
+            rapidjson::PrettyWriter<rapidjson::StringBuffer,
+                rapidjson::UTF8<char>,
+                rapidjson::UTF8<char>,
+                rapidjson::CrtAllocator,
+                rapidjson::kWriteValidateEncodingFlag |
+                rapidjson::kWriteNanAndInfFlag> writer(buffer);
+            writer.SetIndent('\t', 1);
+            m_Document.Accept(writer, 0);
+            CompressEntities(m_CurrentlyLoadedFileName.c_str().AsChar(), (byte*)buffer.GetString(), buffer.GetSize());
+
+        } else {
+            ofstream OfStream(m_CurrentlyLoadedFileName.c_str().AsChar(), std::ofstream::binary);
+            if (OfStream.good() == false) {
+                wxMessageBox(wxString::Format("Could not open %s for writing.", m_CurrentlyLoadedFileName), "Error", wxICON_EXCLAMATION|wxOK);
+                return;
+            }
+
+            rapidjson::OStreamWrapper osw(OfStream);
+            rapidjson::PrettyWriter<rapidjson::OStreamWrapper,
+                rapidjson::UTF8<char>,
+                rapidjson::UTF8<char>,
+                rapidjson::CrtAllocator,
+                rapidjson::kWriteValidateEncodingFlag |
+                rapidjson::kWriteNanAndInfFlag> writer(osw);
+            writer.SetIndent('\t', 1);
+            m_Document.Accept(writer, 0);
+        }
     }
 }
 
@@ -1913,6 +2032,8 @@ void MyFrame::ConstructTreeView()
 
     m_UndoStack.clear();
     m_RedoStack.clear();
+
+    BuildEncounterToEntityMap((EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID()));
 }
 
 void MyFrame::OpenFile(wxCommandEvent& event)
@@ -1932,12 +2053,17 @@ void MyFrame::OpenFile(wxCommandEvent& event)
     if (openFileDialog.ShowModal() == wxID_CANCEL)
         return;
 
+    OpenFileInternal(openFileDialog.GetPath());
+}
+
+bool MyFrame::OpenFileInternal(wxString FilePath)
+{
     bool ResourcesFile = false;
     IDCLReader Resources;
-    ResourcesFile = Resources.OpenFile(openFileDialog.GetPath());
+    ResourcesFile = Resources.OpenFile(FilePath);
     if (ResourcesFile != false) {
         // Find entities strings.
-        m_ResourceReader.OpenFile(openFileDialog.GetPath());
+        m_ResourceReader.OpenFile(FilePath);
         m_file_view_model = new FileTreeModel(m_ResourceReader, "*");
         m_ctrl[Page_ResourcesView]->AssociateModel(m_file_view_model.get());
         m_ctrl[Page_ResourcesView]->Expand(wxDataViewItem(m_file_view_model->GetRoot()));
@@ -1977,28 +2103,47 @@ void MyFrame::OpenFile(wxCommandEvent& event)
 
         m_file_menu->Enable(ID_SAVE_FILE, false);
         m_file_menu->Enable(ID_SAVE_FILE_AS, true);
-        return;
+        return true;
     }
 
-    ifstream InputStreamBinary(openFileDialog.GetPath().c_str().AsChar(), std::ios_base::binary);
-    InputStreamBinary.seekg(InputStreamBinary.end);
+    ifstream InputStreamBinary(FilePath.c_str().AsChar(), std::ios_base::binary);
+    InputStreamBinary.seekg(0, InputStreamBinary.end);
     size_t Size = InputStreamBinary.tellg();
-    InputStreamBinary.seekg(InputStreamBinary.beg);
+    InputStreamBinary.seekg(0, InputStreamBinary.beg);
 
     // Oodle decompress.
+    int Error = 0;
     char *DecompressedData = nullptr;
     size_t DecompressedSize;
-    int Result = DecompressEntities(&InputStreamBinary, &DecompressedData, DecompressedSize);
+    int Result = DecompressEntities(&InputStreamBinary, &DecompressedData, DecompressedSize, Size);
     if (Result == S_OK) {
         MemoryStream memstream(DecompressedData, DecompressedSize);
         m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
         if (m_Document.HasParseError() != false) {
             wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu", (long long)m_Document.GetErrorOffset());
             wxMessageBox(error, _("Error"), wxOK | wxICON_ERROR, this);
+            Error = 1;
+
+        } else {
+            m_CurrentlyLoadedFileCompressed = true;
         }
 
     } else {
-        wxMessageBox(_("Error parsing the entities definition file. (Could not decompress)."), _("Error"), wxOK, this);
+        ifstream InputStream(FilePath.c_str().AsChar());
+        if (InputStream.good() != false) {
+            rapidjson::IStreamWrapper InStream(InputStream);
+            m_Document.ParseStream<rapidjson::kParseCommentsFlag |
+                                   rapidjson::kParseTrailingCommasFlag |
+                                   rapidjson::kParseNanAndInfFlag>(InStream);
+        }
+
+        if (m_Document.HasParseError() != false) {
+            wxMessageBox(wxString::Format("Error parsing the entities definition file. (Could not decompress or parse).\n%s\n (Syntax error at offset: %llu", FilePath, (long long)m_Document.GetErrorOffset()), _("Error"), wxOK, this);
+            Error = 1;
+
+        } else {
+            m_CurrentlyLoadedFileCompressed = false;
+        }
     }
 
     if (DecompressedData != nullptr) {
@@ -2006,13 +2151,28 @@ void MyFrame::OpenFile(wxCommandEvent& event)
     }
 
     if (m_Document.HasParseError() == false) {
-        m_CurrentlyLoadedFileName = openFileDialog.GetPath();
+        m_CurrentlyLoadedFileName = FilePath;
     }
 
     ConstructTreeView();
 
-    m_file_menu->Enable(ID_SAVE_FILE, true);
-    m_file_menu->Enable(ID_SAVE_FILE_AS, true);
+    if (Error == 0) {
+        m_file_menu->Enable(ID_SAVE_FILE, true);
+        m_file_menu->Enable(ID_SAVE_FILE_AS, true);
+    }
+
+    return true;
+}
+
+void MyFrame::OpenFromMeathook(wxCommandEvent& event)
+{
+    char Path[MAX_PATH];
+    size_t PathSize = sizeof(Path);
+    if (m_MeatHook.GetEntitiesFile((unsigned char*)Path, &PathSize) != false) {
+        Path[PathSize] = 0;
+        // Load from file.
+        OpenFileInternal(wxString(Path));
+    }
 }
 
 void MyFrame::ImportFile(wxCommandEvent& event)
@@ -2040,13 +2200,17 @@ void MyFrame::ImportFile(wxCommandEvent& event)
         return;
     }
 
+    bool Error = false;
     rapidjson::IStreamWrapper InStream(InputStream);
     m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(InStream);
     if (m_Document.HasParseError() != false) {
         wxMessageBox(_("Error parsing the entities syntax."), _("Error"), wxOK, this);
+        Error = true;
     }
 
     ConstructTreeView();
+
+    return;
 }
 
 void MyFrame::PushCommand(CommandPattern Command)
@@ -2133,4 +2297,298 @@ void MyFrame::SearchForward(wxCommandEvent& event)
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
     }
+}
+
+void MyFrame::MHPause(wxCommandEvent& event)
+{
+    m_MeatHook.ExecuteConsoleCommand((unsigned char*)"noclip");
+    m_MeatHook.ExecuteConsoleCommand((unsigned char*)"notarget");
+}
+
+void MyFrame::MHReload(wxCommandEvent& event)
+{
+    char Directory[MAX_PATH];
+    GetCurrentDirectoryA(sizeof(Directory), Directory);
+    strcat(Directory, "temp_entities.txt");
+    ofstream OfStream(Directory, std::ofstream::binary);
+    if (OfStream.good() == false) {
+        return;
+    }
+
+    {
+    rapidjson::OStreamWrapper osw(OfStream);
+    rapidjson::PrettyWriter<rapidjson::OStreamWrapper,
+        rapidjson::UTF8<char>,
+        rapidjson::UTF8<char>,
+        rapidjson::CrtAllocator,
+        rapidjson::kWriteValidateEncodingFlag |
+        rapidjson::kWriteNanAndInfFlag> writer(osw);
+    writer.SetIndent('\t', 1);
+    m_Document.Accept(writer, 0);
+    }
+    // Reduce the writer to only one and do the file write.
+    byte* Data = nullptr;
+    size_t DataSize = 0;
+    StringBuffer buffer;
+    {
+    rapidjson::PrettyWriter<rapidjson::StringBuffer,
+        rapidjson::UTF8<char>,
+        rapidjson::UTF8<char>,
+        rapidjson::CrtAllocator,
+        rapidjson::kWriteValidateEncodingFlag |
+        rapidjson::kWriteNanAndInfFlag> writer(buffer);
+    writer.SetIndent('\t', 1);
+    m_Document.Accept(writer, 0);
+    }
+    m_MeatHook.PushEntitiesFile(Directory, (char*)buffer.GetString(), buffer.GetSize());
+}
+
+void MyFrame::MHStatusCheck(wxTimerEvent& event)
+{
+    wxString InterfaceText = wxString::Format("%s %s", m_MhText, m_MeatHook.m_Initialized ? "(connected)" : "(inactive)");
+    m_MHInterfaceStatus->SetLabelText(InterfaceText);
+    m_file_menu->Enable(ID_OPEN_MEATHOOK, m_MeatHook.m_Initialized);
+}
+
+void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wxString OldValue)
+{
+    // Check if key is of type "eEncounterSpawnType_t" and the value being edited is at column 1.
+    wxString KeyName = EncounterNode->m_key;
+    if (KeyName != "eEncounterSpawnType_t") {
+        return;
+    }
+
+    // Grab the encounter name
+    //   1. GetRootNode 
+    //   2. Find eventDef = eventDef
+    //   2. Check if spawnSignleAi or SpawnAi or maintainAICount
+    //      SpawnSingleAI: Entity = Item[1]
+    //      SpawnAi:       Entity = Item[2]
+    //    maintainAICount: Entity = Item[3]
+    //   2. Find(class) == idTarget_Spawn
+
+    auto EventCallNode = EncounterNode->GetParent()->GetParent();
+    wxString eventDefine = EventCallNode->Find("eventDef")->m_value;
+    auto Descriptor = EventDescriptor[eventDefine.c_str().AsChar()];
+    auto Entry = Descriptor.find("idTargetSpawnGroup*");
+    if (Entry == Descriptor.end()) {
+        Entry = Descriptor.find("idTarget_Spawn*");
+    }
+    size_t Index = Entry->second.Index;
+
+    // spawnSingleAI:
+    //     spawnType: eEncounterSpawnType_t
+    //     spawnTarget : idTarget_Spawn *
+    //     group_label : char*
+    // 
+    // spawnAI :
+    //     spawnType : eEncounterSpawnType_t
+    //     spawn_count : int
+    //     spawnGroup : idTargetSpawnGroup *
+    //     group_label : char*
+    // 
+    // staggeredAISpawn :
+    //     spawnType : eEncounterSpawnType_t
+    //     spawn_count : int
+    //     spawnGroup : idTargetSpawnGroup *
+    //     group_label : char*
+    //     minSpawnStagger : float
+    //     maxSpawnStagger : float
+    // 
+    // groupBudgetSpawn :
+    //     pointTotal: int
+    //     spawnGroup : idTargetSpawnGroup *
+    //     populationDecl : idDeclActorPopulation *
+    // 
+    // maintainAICount :
+    //     spawnType : eEncounterSpawnType_t
+    //     desired_count : int
+    //     max_spawn_count : int
+    //     min_spawn_delay : float
+    //     min_ai_for_respawn : int
+    //     spawnGroup : idTargetSpawnGroup *
+    //     group_label : char*
+    //     max_spawn_delay : float
+
+    wxVariant GroupName;
+    EntityTreeModelNode *SpawnGroup = EncounterNode->GetParent()->GetNthChild(Index);
+    wxDataViewItem Item(SpawnGroup);
+    
+    wxString EntityStr = wxString::Format("entityDef %s", SpawnGroup->m_value);
+    size_t SearchIndex = 0;
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID());
+    EntityTreeModelNode* EntityDefNode = Root->FindByName(0, 2, EntityStr, 0, SearchIndex, true, true);
+    if (EntityDefNode == nullptr) {
+        wxString MessageString = wxString::Format("Failed to get spawngroup for (%s)", SpawnGroup->m_value);
+        int result = wxMessageBox(MessageString, "Error", wxICON_EXCLAMATION | wxOK);
+        return;
+    }
+
+    // Get the encounter nodes layer name.
+    EntityTreeModelNode *LayerNode = GetLayerNode(EncounterNode);
+
+    // Check if the SpawnGroup supports the new enemy type.
+    if (SpawnTypeSupportedByGroup(Root, EntityDefNode, EncounterNode) != false) {
+        // Check whether the layers are correct.
+        if (IsLayerSupported(EntityDefNode, LayerNode->m_value) != false) {
+            return;
+        }
+    }
+
+    wxString MessageString = wxString::Format("The encounter type(%s) is not supported by spawnGroup(%s) do you want to auto resolve?", EncounterNode->m_value, EntityDefNode->m_key);
+    int result = wxMessageBox(MessageString, "Spawngroup not compatible", wxICON_EXCLAMATION | wxYES_NO);
+    if (result == wxNO) {
+        return;
+    }
+
+    // Update targets, this could be adding an existing idAI2 class to the targets.
+    // Or duplication an idAI2 node to if that node does not have the necessary layer useage.
+    // targets = {
+    //     num = 1;
+    //     item[0] = "cathedral_ai_heavy_arachnotron_1";
+    // }
+    EntityTreeModelNode *AI2Node = GetExistingAI2Node(Root, EncounterNode->m_value, LayerNode->m_value);
+    GroupedCommand Command = make_shared<_GroupedCommand>();
+    if (AI2Node == nullptr) {
+        // Ask if user wants to duplicate.
+        wxString MessageString = wxString::Format("The idAI2(%s) is not part of layer(%s) do you want to duplicate (%s)?", EncounterNode->m_value, LayerNode->m_value, EntityDefNode->m_key, EncounterNode->m_value);
+        int result = wxMessageBox(MessageString, "idAI2 not in layer", wxICON_EXCLAMATION | wxYES_NO);
+        if (result == wxNO) {
+            return;
+        }
+
+        AI2Node = GetExistingAI2Node(Root, EncounterNode->m_value, "");
+
+        if (AI2Node == nullptr) {
+            wxString MessageString = wxString::Format("Could not auto resolve..", EncounterNode->m_value, EntityDefNode->m_key);
+            wxMessageBox(MessageString, "Error", wxICON_EXCLAMATION | wxOK);
+            return;
+        }
+
+        CommandPattern Duplicate = make_shared<DuplicateSubTreeCommand>(wxDataViewItem(AI2Node), m_entity_view_model, m_Document);
+        Command->PushCommand(Duplicate);
+        Duplicate->Execute();
+        AI2Node = ((DuplicateSubTreeCommand*)(Duplicate.get()))->m_NewItem;
+
+        // Overwrite the layer value.
+        EntityTreeModelNode *Layer = AI2Node->Find("layers")->GetChildren()[0];
+        CommandPattern ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(Layer), m_entity_view_model, wxT(""), 1);
+        ((ChangeItemCommand*)ChangeCmd.get())->SetNewValue(LayerNode->m_value);
+        ChangeCmd->Execute();
+        Command->PushCommand(ChangeCmd);
+    }
+
+    assert(AI2Node != nullptr);
+
+    // Add new array entry into the spawn group.
+    {
+#if 0
+        EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:entityDefs");
+        rapidjson::Value ParentKey("parent", m_Document.GetAllocator());
+        rapidjson::Value ParentValue("", m_Document.GetAllocator());
+        ParentValue.SetObject();
+        rapidjson::Value ValKey("name", m_Document.GetAllocator());
+        wxString EntityName = AI2Node->m_key;
+        rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+        ParentValue.AddMember(ValKey, ValValue, m_Document.GetAllocator());
+        EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(nullptr, "parent", ParentKey, ParentValue, m_Document);
+        EnumChildren(ParentArrayItemNode, ParentValue, m_Document);
+        CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document);
+#else
+        EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:entityDefs");
+        rapidjson::Value ValKey("name", m_Document.GetAllocator());
+        wxString EntityName = AI2Node->m_key;
+        rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+        EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
+        EnumChildren(ParentArrayItemNode, ValValue, m_Document);
+        CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
+#endif
+        Command->PushCommand(Insert);
+        Insert->Execute();
+    }
+
+    {
+        // Add new array entry into the targets array.
+        EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:targets");
+        if (GroupArrayNode != nullptr) {
+            rapidjson::Value ValKey("name", m_Document.GetAllocator());
+            wxString EntityName = AI2Node->m_key;
+            rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+            EntityTreeModelNode* GroupArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
+            CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(GroupArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document);
+            Command->PushCommand(Insert);
+            Insert->Execute();
+        }
+    }
+
+    // Save the command.
+    PushCommand(Command);
+ }
+
+bool MyFrame::SetLocationNodeFromMH(EntityTreeModelNode *Node)
+{
+    // Check for x,y,z
+    EntityTreeModelNode *NodeX = Node->GetNthChild(0);
+    EntityTreeModelNode *NodeY = Node->GetNthChild(1);
+    EntityTreeModelNode *NodeZ = Node->GetNthChild(2);
+    if (NodeX == nullptr || NodeY == nullptr || NodeZ == nullptr) {
+        return false;
+    }
+
+    if (NodeX->m_key != "x" || NodeY->m_key != "y" || NodeZ->m_key != "z") {
+        return false;
+    }
+
+    // Get the location and parse it.
+    char Info[MAX_PATH];
+    char x[MAX_PATH], y[MAX_PATH], z[MAX_PATH];
+
+    m_MeatHook.GetSpawnInfo((unsigned char*)Info);
+    sscanf_s(Info, "%s %s %s", x, (unsigned int)sizeof(x), y, (unsigned int)sizeof(y), z, (unsigned int)sizeof(z));
+
+    // Adjust the current nodes.
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    CommandPattern ChangeCmd;
+
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeX), m_entity_view_model, x, 1);
+    Group->PushCommand(ChangeCmd);
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeY), m_entity_view_model, y, 1);
+    Group->PushCommand(ChangeCmd);
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeZ), m_entity_view_model, z, 1);
+    Group->PushCommand(ChangeCmd);
+    Group->Execute();
+    PushCommand(Group);
+
+    return true;
+}
+
+bool MyFrame::SetRotationNodeFromMH(EntityTreeModelNode* Node)
+{
+    EntityTreeModelNode* Matrix = Node->GetNthChild(0);
+    if (Matrix == nullptr) {
+        return false;
+    }
+
+    if (Matrix->m_key != "mat") {
+        return false;
+    }
+
+    float x,y,z,Pitch,Yaw;
+    char Info[MAX_PATH];
+    m_MeatHook.GetSpawnInfo((unsigned char*)Info);
+    sscanf_s(Info, "%f %f %f %f %f", &x, &y, &z, &Pitch, &Yaw);
+    EntityTreeModelNode *RotationNode = RotationMatrixFromAngle(m_Document, Pitch, Yaw, 0);
+
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    // Remove Node
+    CommandPattern ChangeCmd;
+    ChangeCmd = std::make_shared<DeleteSubTreeCommand>(wxDataViewItem(Matrix), m_entity_view_model, m_Document);
+    Group->PushCommand(ChangeCmd);
+    // Add the created RotationNode
+    ChangeCmd = std::make_shared<InsertSubTreeCommand>(wxDataViewItem(RotationNode), wxDataViewItem(Node), 0, m_entity_view_model, m_Document);
+    Group->PushCommand(ChangeCmd);
+    // Execute group and push into undo stack.
+    Group->Execute();
+    PushCommand(Group);
+    return true;
 }
