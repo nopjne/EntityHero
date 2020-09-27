@@ -1,0 +1,182 @@
+spawnSingleAI:
+	spawnType : eEncounterSpawnType_t
+	spawnTarget : idTarget_Spawn*
+	group_label : char*
+
+spawnAI:
+	spawnType : eEncounterSpawnType_t
+	spawn_count : int
+	spawnGroup : idTargetSpawnGroup*
+	group_label : char*
+
+staggeredAISpawn:
+	spawnType : eEncounterSpawnType_t
+	spawn_count : int
+	spawnGroup : idTargetSpawnGroup*
+	group_label : char*
+	minSpawnStagger : float
+	maxSpawnStagger : float
+
+groupBudgetSpawn:
+	pointTotal : int
+	spawnGroup : idTargetSpawnGroup*
+	populationDecl : idDeclActorPopulation*
+
+maintainAICount:
+	spawnType : eEncounterSpawnType_t
+	desired_count : int
+	max_spawn_count : int
+	min_spawn_delay : float
+	min_ai_for_respawn : int
+	spawnGroup : idTargetSpawnGroup*
+	group_label : char*
+	max_spawn_delay : float
+
+stopMaintainingAICount:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+
+spawnArchvile:
+	spawnTarget : idEntity*
+	archvileTemplate : idArchvileTemplate*
+	archvile_label : char*
+	group_label : char*
+
+changeArchvileTemplate:
+	archvileTemplate : idArchvileTemplate*
+	archvile_label : char*
+
+spawnBuffPod:
+	spawnTarget : idEntity*
+	buffpod_label : char*
+	buffedai_label : char*
+
+activateTarget:
+	target : idEntity*
+	designComment : char*
+
+logicDesignerCustomEvent:
+	target : idEntity*
+	designComment : char*
+
+setAIMemoryKey:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+	memoryKey : char*
+	value : int
+	includeNewSpawns : bool
+	stringValue : char*
+
+removeAIMemoryKey:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+	memoryKey : char*
+
+setMusicState:
+	target : idMusicEntity*
+	stateDecl : idSoundState*
+	designComment : char*
+
+setNextScriptIndex:
+	nextScriptIndex : int
+
+setNextScriptIndexRandom:
+	minScriptIndex : int
+	maxScriptIndex : int
+
+proceedToNextScript:
+	bypassNextWaitForCommit : bool
+	carryOverExistingUserFlags : bool
+
+makeAIAwareOfPlayer:
+	allActive : bool
+	onSpawn : bool
+	groupLabel : char*
+	restorePerception : bool
+
+restoreDefaultPerception:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+
+activateCombatGrouping:
+	combatGrouping : idEntity*
+	groupLabel : char*
+	assignmentDelaySec : float
+
+clearCombatRoles:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+
+setCombatRoles:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+	group_role : encounterGroupRole_t
+
+forceAIToFlee:
+	spawnType : eEncounterSpawnType_t
+	group_label : char*
+	radius : float
+	immediateDespawn : bool
+
+wait:
+	seconds : float
+	disableAIHighlight : bool
+
+waitMulitpleConditions:
+	condition_count : int
+	logic_operator : encounterLogicOperator_t
+	disableAIHighlight : bool
+
+waitKillCount:
+	aiType : eEncounterSpawnType_t
+	desired_kill_count : int
+	group_label : char*
+	disableAIHighlight : bool
+
+waitKillCountOrSyncStart:
+	aiType : eEncounterSpawnType_t
+	desired_kill_count : int
+	group_label : char*
+	disableAIHighlight : bool
+
+waitRandomKillCount:
+	aiType : eEncounterSpawnType_t
+	kill_count_min : int
+	kill_count_max : int
+	group_label : char*
+	disableAIHighlight : bool
+
+waitForStatCount:
+	trackedStat : gameStat_t
+	stat_hit_count : int
+	disableAIHighlight : bool
+
+waitAIRemaining:
+	aiType : eEncounterSpawnType_t
+	desired_remaing_ai_count : int
+	group_label : char*
+	disableAIHighlight : bool
+
+waitAIHealthLevel:
+	aiType : eEncounterSpawnType_t
+	target_group_health : float
+	group_label : char*
+	disableAIHighlight : bool
+
+waitMaintainComplete:
+	aiType : eEncounterSpawnType_t
+	remaining_spawn_count : int
+	group_label : char*
+	disableAIHighlight : bool
+
+waitStaggeredSpawnComplete:
+	aiType : eEncounterSpawnType_t
+	remaining_spawn_count : int
+	group_label : char*
+	disableAIHighlight : bool
+
+waitForEventFlag:
+	eventFlag : eEncounterEventFlags_t
+	userFlag : char*
+	testIfAlreadyRaised : bool
+	disableAIHighlight : bool

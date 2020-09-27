@@ -203,7 +203,16 @@ void EnumChildren(EntityTreeModelNode *Parent, Value &val, rapidjson::Document& 
         } else {
             EntityTreeModelNode *child = new EntityTreeModelNode(Parent, ValueToString((*member).name), ValueToString((*member).value), member->name, member->value, Document);
             Parent->GetChildren().Add(child);
-            ValueMap[ValueToString(member->name)].insert(ValueToString(member->value));
+            wxString ValueString = wxString(ValueToString(member->value));
+            // TODO: support adding every separated encounter type.
+            if (ValueString.Matches("ENCOUNTER_SPAWN_*") != false) {
+                int Separator = ValueString.find(' ');
+                if (Separator != wxString::npos) {
+                    ValueString = ValueString.substr(0, Separator);
+                }
+            }
+
+            ValueMap[ValueToString(member->name)].insert(ValueString.c_str().AsChar());
         }
     }
 }
@@ -231,6 +240,40 @@ bool PartialMatch(wxString& a, wxString& b)
     }
 
     return (strstr(b.c_str().AsChar(), a.c_str().AsChar()) != nullptr);
+}
+
+EntityTreeModelNode* EntityTreeModelNode::Find(wxString Text)
+{
+    if (Text.empty() != false) {
+        return this;
+    }
+
+    size_t SeparatorPosition;
+    if ((SeparatorPosition = Text.find(":")) != wxString::npos) {
+        wxString Token = Text.SubString(0, SeparatorPosition - 1);
+        wxString Rest = Text.Remove(0, SeparatorPosition + 1);
+
+        size_t Index = 0;
+        EntityTreeModelNode *Found = FindByName(0, 1, Token, 0, Index, true, true);
+        if (Found == nullptr) {
+            return nullptr;
+        }
+
+        return Found->Find(Rest);
+
+    } else {
+        size_t Index = 0;
+        EntityTreeModelNode* Found = FindByName(0, 1, Text, 0, Index, true, true);
+        return Found;
+    }
+
+    return nullptr;
+}
+
+EntityTreeModelNode* EntityTreeModelNode::FindKey(wxString Text)
+{
+    size_t IndexToFind = 0;
+    return FindByName(0, 1, Text, 0, IndexToFind, true, true);
 }
 
 EntityTreeModelNode* EntityTreeModelNode::FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t &Index, bool Exact, bool MatchCase)
@@ -282,16 +325,17 @@ wxDataViewItem EntityTreeModel::SelectText(wxString& Text, eSearchDirection Sear
         Index = 0;
     }
 
-    if (m_PreviousToFind != Text) {
-        Index = 0;
-    }
-
     size_t PrevIndex = Index;
     if (SearchDir == eSearchDirection::NEXT) {
         Index += 1;
 
     } else if (SearchDir == eSearchDirection::PREV) {
         Index -= 1;
+    }
+
+    if (m_PreviousToFind != Text) {
+        Index = 0;
+        PrevIndex = 0;
     }
 
     m_PreviousToFind = Text;
@@ -510,7 +554,7 @@ void EntityTreeModel::Delete( const wxDataViewItem &item )
     ItemDeleted( parent, item );
 }
 
-int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document)
+int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, bool AsObject)
 {
     EntityTreeModelNode* Node = (EntityTreeModelNode*)Item->GetID();
     if (!Node)      // happens if item.IsOk()==false
@@ -524,9 +568,10 @@ int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataView
 
     // If inserting an object, the object also needs an additional item[x] object before it can be inserted.
 
-    ParentNode->Insert(Node, Index, Document);
+    ParentNode->Insert(Node, Index, Document, AsObject);
     ItemAdded(*ParentItem, wxDataViewItem(Node));
     RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+    RebuildReferences(Node, *(Node->m_keyRef), *(Node->m_valueRef), 0);
     return 1;
 }
 
