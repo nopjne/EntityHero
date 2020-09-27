@@ -26,7 +26,7 @@ typedef int WINAPI OodLZ_DecompressFunc(uint8* src_buf, int src_len, uint8* dst,
 OodLZ_CompressFunc* OodLZ_Compress;
 OodLZ_DecompressFunc* OodLZ_Decompress;
 
-int DecompressEntities(std::istream *input, char** OutDecompressedData, size_t& OutSize) {
+int DecompressEntities(std::istream *input, char** OutDecompressedData, size_t& OutSize, size_t InSize) {
     // read uncompressed size
     //input->seekg(input->beg);
     uint64_t uncompressedSize;
@@ -36,9 +36,19 @@ int DecompressEntities(std::istream *input, char** OutDecompressedData, size_t& 
     size_t compressedSize;
     input->read((char*)&compressedSize, 8);
  
+    // Verify that the compressed size is atleast sane.
+    if ((InSize * 2) <= compressedSize) {
+        OutputDebugString(L"Compressed size was invalid.\n");
+        return 6;
+    }
+
     // read all the compressed data and validate the file
     byte* compressedData = new byte[compressedSize];
- 
+    if (compressedData == nullptr) {
+        OutputDebugString(L"Compressed size was invalid or out of memory.\n");
+        return 5;
+    }
+
     input->read((char*)compressedData, compressedSize);
     if (input->bad()) {
         OutputDebugString(L"Bad file, can't decompress.\n");

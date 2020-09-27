@@ -20,10 +20,10 @@ public:
     bool DestroyRpcInterface();
     bool InitializeRpcInterface();
 
-    void ExecuteConsoleCommand(unsigned char* pszString);
-    void PushEntitiesFile(unsigned char* pBuffer, size_t Size);
-    void GetSpawnInfo(unsigned char* pBuffer);
-    void GetEntitiesFile(unsigned char* pBuffer, size_t* Size);
+    bool ExecuteConsoleCommand(unsigned char* pszString);
+    bool PushEntitiesFile(char* pFileName, char* pBuffer, int Size);
+    bool GetSpawnInfo(unsigned char* pBuffer);
+    bool GetEntitiesFile(unsigned char* pBuffer, size_t* Size);
 
     static DWORD WINAPI KeepAlive(LPVOID Data);
 };

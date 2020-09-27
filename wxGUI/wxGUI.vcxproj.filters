@@ -51,6 +51,9 @@
     <ClCompile Include="..\RPCInterface\meathook_interface_c.c">
       <Filter>Source Files\RPCInterface</Filter>
     </ClCompile>
+    <ClCompile Include="EventDescription.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\rapidjson\allocators.h">
@@ -136,6 +139,12 @@
     </ClInclude>
     <ClInclude Include="..\RPCInterface\mhclient.h">
       <Filter>Source Files\RPCInterface</Filter>
+    </ClInclude>
+    <ClInclude Include="EntityHelper.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="EventDescription.h">
+      <Filter>Source Files</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

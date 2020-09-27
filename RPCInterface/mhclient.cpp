@@ -38,12 +38,30 @@
 DWORD WINAPI MeathookInterface::KeepAlive(LPVOID Data)
 {
     MeathookInterface *pthis = (MeathookInterface*)Data;
+    pthis->m_Initialized = false;
     while (1) {
-        pthis->m_Initialized = false;
-        pthis->InitializeRpcInterface();
-        int result = WaitForSingleObject(pthis->m_UnInitialized, INFINITE);
+        if (pthis->m_Initialized == false) {
+            pthis->InitializeRpcInterface();
+        }
+
+        //int result = WaitForSingleObject(pthis->m_UnInitialized, INFINITE);
+        RpcTryExcept
+        {
+            int x;
+            ::KeepAlive(meathook_interface_v1_0_c_ifspec, &x);
+            pthis->m_Initialized = true;
+        }
+        RpcExcept(1)
+        {
+            int ulCode = RpcExceptionCode();
+            printf("Runtime reported exception 0x%lx = %ld\n", ulCode, ulCode);
+            pthis->m_Initialized = false;
+        }
+        RpcEndExcept
         Sleep(5000);
     }
+
+    return 0;
 }
 
 void MeathookInterface::StartKeepAliveThread()
@@ -52,63 +70,94 @@ void MeathookInterface::StartKeepAliveThread()
     CreateThread(NULL, 0, MeathookInterface::KeepAlive, this, 0, &m_ThreadId);
 }
 
-void MeathookInterface::GetSpawnInfo(unsigned char* pBuffer)
+bool MeathookInterface::GetSpawnInfo(unsigned char* pBuffer)
 {
     RpcTryExcept
     {
-        int Size = (int)sizeof(m_SpawnInfoBuffer);
-        ::GetSpawnInfo(meathook_interface_v1_0_c_ifspec, &Size, (unsigned char*) m_SpawnInfoBuffer);
-        strcpy_s((char*)pBuffer, 256, m_SpawnInfoBuffer);
+        if (pBuffer != nullptr) {
+            int Size = (int)sizeof(m_SpawnInfoBuffer);
+            ::GetSpawnInfo(meathook_interface_v1_0_c_ifspec, &Size, (unsigned char*) m_SpawnInfoBuffer);
+            strcpy_s((char*)pBuffer, 256, m_SpawnInfoBuffer);
+            m_Initialized = true;
+
+        } else {
+            int Size = 0;
+            ::GetSpawnInfo(meathook_interface_v1_0_c_ifspec, &Size, 0);
+        }
+        return true;
     }
     RpcExcept(1)
     {
         int ulCode = RpcExceptionCode();
         printf("Runtime reported exception 0x%lx = %ld\n", ulCode, ulCode);
+        m_Initialized = false;
+        return false;
     }
     RpcEndExcept
+    return false;
 }
-void MeathookInterface::GetEntitiesFile(unsigned char* pBuffer, size_t *Size)
+bool MeathookInterface::GetEntitiesFile(unsigned char* pBuffer, size_t *Size)
 {
     RpcTryExcept
     {
         int TempSize = (int)*Size;
         ::GetEntitiesFile(meathook_interface_v1_0_c_ifspec, &TempSize, pBuffer);
         *Size = TempSize;
+        return true;
     }
     RpcExcept(1)
     {
         int ulCode = RpcExceptionCode();
         printf("Runtime reported exception 0x%lx = %ld\n", ulCode, ulCode);
+        return false;
     }
     RpcEndExcept
+    return false;
 }
 
-void MeathookInterface::PushEntitiesFile(unsigned char* pBuffer, size_t Size)
+bool MeathookInterface::PushEntitiesFile(char* pFileName, char *pBuffer, int Size)
 {
     RpcTryExcept
     {
-        ::PushEntitiesFile(meathook_interface_v1_0_c_ifspec, (int)Size, pBuffer);
+        //MaxSize =  4194296 (0x3FFFF8) RPC interface hangs with anything above this size.
+        ::PushEntitiesFile(meathook_interface_v1_0_c_ifspec, (unsigned char*)pFileName, true, 0);
+        // int TotalSize = Size;
+        // int ChunkSize = 500000;
+        // int Offset = 0;
+        // while (TotalSize > 0) {
+        //     ::UploadData(meathook_interface_v1_0_c_ifspec, ChunkSize, Offset, (unsigned char*)(pBuffer + Offset));
+        //     TotalSize -= ChunkSize;
+        //     Offset += ChunkSize;
+        // }
+        // 
+        // ::PushEntitiesFile(meathook_interface_v1_0_c_ifspec, (unsigned char*)pFileName, false, Size);
+        return true;
     }
     RpcExcept(1)
     {
         int ulCode = RpcExceptionCode();
         printf("Runtime reported exception 0x%lx = %ld\n", ulCode, ulCode);
+        return false;
     }
     RpcEndExcept
+    return false;
 }
 
-void MeathookInterface::ExecuteConsoleCommand(unsigned char* pszString)
+bool MeathookInterface::ExecuteConsoleCommand(unsigned char* pszString)
 {
     RpcTryExcept
     {
         ::ExecuteConsoleCommand(meathook_interface_v1_0_c_ifspec, pszString);
+        return true;
     }
     RpcExcept(1)
     {
         int ulCode = RpcExceptionCode();
         printf("Runtime reported exception 0x%lx = %ld\n", ulCode, ulCode);
+        return false;
     }
     RpcEndExcept
+    return false;
 }
 
 bool MeathookInterface::DestroyRpcInterface() {

@@ -1,3 +1,6 @@
+#pragma once
+#ifndef _ENTITY_VIEW_MODEL
+#define _ENTITY_VIEW_MODEL
 #include "wx/hashmap.h"
 #include "wx/vector.h"
 #include <rapidjson.h>
@@ -61,7 +64,6 @@ public:
 
     bool IsContainer() const
         { return m_container; }
-
     EntityTreeModelNode* GetParent()
         { return m_parent; }
     EntityTreeModelNodePtrArray& GetChildren()
@@ -69,14 +71,15 @@ public:
     EntityTreeModelNode* GetNthChild( unsigned int n )
         { return m_children.Item( n ); }
 
-    void Insert(EntityTreeModelNode* child, unsigned int n, rapidjson::Document& Document)
+    void Insert(EntityTreeModelNode* child, unsigned int n, rapidjson::Document& Document, bool AsObject = false)
     {
+        child->m_parent = this;
         m_children.Insert(child, n);
-        if (((m_valueRef->GetFlags() & 0x4000) != 0) && (n == 0)) {
+        if ((m_valueRef->GetFlags() & 0x4000) != 0) {
             n += 1;
         }
 
-        if ((m_valueRef->GetFlags() & 0x4000) && (child->m_valueCopy.IsObject() != false)) {
+        if (((m_valueRef->GetFlags() & 0x4000) && (child->m_valueCopy.IsObject() != false)) || (AsObject != false)) {
             rapidjson::Value ArrayItemValue;
             rapidjson::Value ArrayItemName;
             ArrayItemName.SetString("0");
@@ -100,6 +103,8 @@ public:
 
     size_t GetChildIndex(EntityTreeModelNode* Node);
     EntityTreeModelNode* FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t& Index, bool Exact, bool MatchCase);
+    EntityTreeModelNode* FindKey(wxString Text);
+    EntityTreeModelNode* Find(wxString Text);
 
 public:
     wxString                m_key;
@@ -138,7 +143,7 @@ public:
     wxString GetValue( const wxDataViewItem &item ) const;
     void Delete( const wxDataViewItem &item );
 
-    int Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document);
+    int Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, bool AsObject = false);
     void RebuildReferences(EntityTreeModelNode* Node, rapidjson::Value& Key, rapidjson::Value& Value, size_t MaxDepth = 0, size_t CurrentDepth = 0);
     size_t CountByName(wxString& Text, bool Exact, size_t MaxDepth);
 
@@ -184,3 +189,5 @@ public:
 private:
     EntityTreeModelNode*   m_root;
 };
+
+#endif

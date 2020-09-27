@@ -162,6 +162,7 @@
     <ClCompile Include="..\RPCInterface\mhclient.cpp" />
     <ClCompile Include="dataview.cpp" />
     <ClCompile Include="Dialogs.cpp" />
+    <ClCompile Include="EventDescription.cpp" />
     <ClCompile Include="FileTreeModel.cpp" />
     <ClCompile Include="idMapExtract.cpp" />
     <ClCompile Include="main.cpp" />
@@ -193,7 +194,9 @@
     <ClInclude Include="..\RPCInterface\mhclient.h" />
     <ClInclude Include="Command.h" />
     <ClInclude Include="Dialogs.h" />
+    <ClInclude Include="EntityHelper.h" />
     <ClInclude Include="entityviewmodel.h" />
+    <ClInclude Include="EventDescription.h" />
     <ClInclude Include="FileTreeModel.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="ResourcesParser.h" />

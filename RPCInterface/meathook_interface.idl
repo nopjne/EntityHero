@@ -6,7 +6,9 @@
 interface meathook_interface
 {
     void ExecuteConsoleCommand([in, string] unsigned char * pszString);
-    void PushEntitiesFile([in] int Size, [in, size_is(Size)] unsigned char * pBuffer );
+    void PushEntitiesFile([in, string] char* pBuffer, [in] boolean Start, [in] int Size);
+    void UploadData([in] int Size, [in] int Offset, [in, size_is(Size)] char * pBuffer);
     void GetEntitiesFile([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer );
     void GetSpawnInfo([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer);
+    void KeepAlive([in, out] int *Size);
 }
