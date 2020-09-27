@@ -58,7 +58,14 @@ void ExecuteConsoleCommand(
 
 void PushEntitiesFile( 
     /* [in] */ handle_t IDL_handle,
+    /* [string][in] */ unsigned char *pBuffer,
+    /* [in] */ boolean Start,
+    /* [in] */ int Size);
+
+void UploadData( 
+    /* [in] */ handle_t IDL_handle,
     /* [in] */ int Size,
+    /* [in] */ int Offset,
     /* [size_is][in] */ unsigned char *pBuffer);
 
 void GetEntitiesFile( 
@@ -70,6 +77,10 @@ void GetSpawnInfo(
     /* [in] */ handle_t IDL_handle,
     /* [out][in] */ int *Size,
     /* [size_is][out] */ unsigned char *pBuffer);
+
+void KeepAlive( 
+    /* [in] */ handle_t IDL_handle,
+    /* [out][in] */ int *Size);
 
 
 
