@@ -12,4 +12,6 @@ struct EntryDescription {
 
 extern std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
 
+bool LoadEventDescriptor(void);
+
 #endif // _EVENT_DESCRIPTION_INCLUDED
