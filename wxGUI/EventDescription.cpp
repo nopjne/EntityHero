@@ -4,7 +4,7 @@
 
 std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
 
-void LoadEventDescriptor(void)
+bool LoadEventDescriptor(void)
 {
     FILE *EventFile;
     char NameA[256];
@@ -16,7 +16,7 @@ void LoadEventDescriptor(void)
         if (EventFile == nullptr) {
             fopen_s(&EventFile, "../../eternalevents.txt", "rt");
             if (EventFile == nullptr) {
-                return;
+                return false;
             }
         }
     }
@@ -40,4 +40,5 @@ void LoadEventDescriptor(void)
     }
 
     fclose(EventFile);
+    return true;
 }

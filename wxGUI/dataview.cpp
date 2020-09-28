@@ -56,8 +56,6 @@
 using namespace rapidjson;
 using namespace std;
 
-void LoadEventDescriptor(void);
-
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -604,7 +602,9 @@ bool MyApp::OnInit()
     if ( !wxApp::OnInit() )
         return false;
 
-    LoadEventDescriptor();
+    if (LoadEventDescriptor() == false) {
+        wxMessageBox(wxT("Could not load eternalevents.txt put it into the same folder as EntityHero.exe"), wxT("Error"), wxOK);
+    }
 
     MyFrame *frame =
         new MyFrame(NULL, "EntityHero v0.2 (by Scorp0rX0r)", 40, 40, 1000, 540);
@@ -2374,6 +2374,12 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
     if (Entry == Descriptor.end()) {
         Entry = Descriptor.find("idTarget_Spawn*");
     }
+
+    if (Entry == Descriptor.end()) {
+        wxString MessageString = wxString::Format("Could not resolve. Make sure the eternalevents.txt file is in the same directory as EntityHero.exe");
+        int result = wxMessageBox(MessageString, "Error", wxICON_EXCLAMATION | wxOK);
+        return;
+    }
     size_t Index = Entry->second.Index;
 
     // spawnSingleAI:
@@ -2412,6 +2418,12 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
 
     wxVariant GroupName;
     EntityTreeModelNode *SpawnGroup = EncounterNode->GetParent()->GetNthChild(Index);
+    if (SpawnGroup == nullptr) {
+        wxString MessageString = wxString::Format("Could not resolve. Make sure the eternalevents.txt file is in the same directory as EntityHero.exe");
+        int result = wxMessageBox(MessageString, "Error", wxICON_EXCLAMATION | wxOK);
+        return;
+    }
+
     wxDataViewItem Item(SpawnGroup);
     
     wxString EntityStr = wxString::Format("entityDef %s", SpawnGroup->m_value);
