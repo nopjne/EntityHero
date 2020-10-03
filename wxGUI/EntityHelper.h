@@ -88,6 +88,21 @@ bool SpawnTypeSupportedByGroup(EntityTreeModelNode *root, EntityTreeModelNode* S
     //entity(spawnGroup):entityDef(name):edit:entityDefs[]:name -> value (entitydef of idAI2)
     wxString ToFind = wxString::Format("%s:%s:edit:entityDefs", EntityDefName, SpawnGroup->m_key);
     EntityTreeModelNode* DefsArray = root->Find(ToFind);
+    if (DefsArray == nullptr) {
+        ToFind = wxString::Format("%s:%s:edit:targetSpawnParent", EntityDefName, SpawnGroup->m_key);
+        EntityTreeModelNode* SpawnParent = root->Find(ToFind);
+        if (SpawnParent != nullptr) {
+            ToFind = wxString::Format("%s:entityDef %s", SpawnParent->m_value, SpawnParent->m_value);
+            EntityTreeModelNode* TargetSpawn = root->Find(ToFind);
+            return SpawnTypeSupportedByGroup(root, TargetSpawn, Encounter);
+        }
+
+        // ToFind = wxString::Format("%s:%s:edit:spawners", EntityDefName, SpawnGroup->m_key);
+        // EntityTreeModelNode* DefsArray = root->Find(ToFind);
+        // Check spawners and spawn target parent.
+        return false;
+    }
+
     for (size_t i = 0; i < DefsArray->GetChildren().size(); i += 1) {
         EntityTreeModelNode* Entity = DefsArray->GetNthChild(i);
         wxString Name = Entity->FindKey("name")->m_value;
@@ -144,7 +159,13 @@ wxString GetAIDefinitionString(EntityTreeModelNode* Root, wxString String, wxStr
             FindStr = wxString::Format("%s:entityDef %s:edit:spawners", String, String);
             Entity = Root->Find(FindStr);
             if (Entity == nullptr) {
-                return "";
+                FindStr = wxString::Format("%s:entityDef %s:edit:targetSpawnParent", String, String);
+                Entity = Root->Find(FindStr);
+                if (Entity == nullptr) {
+                    return "";
+                }
+
+                return GetAIDefinitionString(Root, Entity->m_value, Name);
             }
 
             EntityTreeModelNodePtrArray SpawnTargets = Entity->GetChildren();
@@ -256,6 +277,10 @@ void BuildEncounterToEntityMap(EntityTreeModelNode* root)
 
         EntityTreeModelNode* entityEvents = Node->Find(wxString::Format("entityDef %s:edit:encounterComponent:entityEvents", Node->m_key));
         // "[]:events[]:eventCall:args[]:eEncounterSpawnType_t"
+        if (entityEvents == nullptr) {
+            continue;
+        }
+
         for (auto EntityNode : entityEvents->GetChildren()) {
             EntityTreeModelNode* Events = EntityNode->Find("events");
             if (Events == nullptr) {
@@ -272,8 +297,14 @@ void BuildEncounterToEntityMap(EntityTreeModelNode* root)
                 EntityTreeModelNode* Arguments = Event->Find("eventCall:args");
                 EntityTreeModelNode* SpawnType = Arguments->Find("eEncounterSpawnType_t");
                 EntityTreeModelNode* SpawnTarget = Arguments->GetNthChild(Index);
-                wxString SpawnTargetStr = SpawnTarget->m_value;
+                if (SpawnTarget == nullptr) {
+                    continue;
+                }
 
+                wxString SpawnTargetStr = SpawnTarget->m_value;
+                if (SpawnType == nullptr) {
+                    continue;
+                }
 
                 //std::map<std::string, std::vector<Holder>> ValidEncounterMap = {
                 //{"ENCOUNTER_SPAWN_ARACHNOTRON", {{"cathedral_ai_heavy_arachnotron_1", "md6def/characters/monsters/arachnotron/base/arachnotron.md6"}}}

@@ -13,6 +13,12 @@ WX_DECLARE_HASH_MAP(unsigned, wxString, wxIntegerHash, wxIntegerEqual,
 class EntityTreeModelNode;
 WX_DEFINE_ARRAY_PTR(EntityTreeModelNode*, EntityTreeModelNodePtrArray );
 
+enum eSearchDirection
+{
+    FIRST,
+    NEXT,
+    PREV,
+};
 
 class EntityTreeModelNode
 {
@@ -105,6 +111,8 @@ public:
     EntityTreeModelNode* FindByName(size_t Depth, size_t MaxDepth, wxString& Text, size_t IndexToFind, size_t& Index, bool Exact, bool MatchCase);
     EntityTreeModelNode* FindKey(wxString Text);
     EntityTreeModelNode* Find(wxString Text);
+    EntityTreeModelNode* FindFromHere(EntityTreeModelNode* Invoker, wxString& Text, eSearchDirection SearchDir, bool Exact, bool MatchCase);
+    EntityTreeModelNode* Visit(wxString& Text, bool Exact, bool MatchCase);
 
 public:
     wxString                m_key;
@@ -119,13 +127,6 @@ public:
     rapidjson::Value               m_keyCopy;
     rapidjson::Value              *m_valueRef;
     rapidjson::Value              *m_keyRef;
-};
-
-enum eSearchDirection
-{
-    FIRST,
-    NEXT,
-    PREV,
 };
 
 class EntityTreeModel: public wxDataViewModel

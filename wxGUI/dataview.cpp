@@ -1275,6 +1275,8 @@ void MyFrame::OnBeginDrag( wxDataViewEvent &event )
 
 void MyFrame::OnDropPossible( wxDataViewEvent &event )
 {
+    // Only items that are part of an array may be reordered.
+    // Item is array item and has to be the same level (have same parent).
     if (event.GetDataFormat() != wxDF_UNICODETEXT)
         event.Veto();
     else
@@ -1819,8 +1821,22 @@ void MyFrame::OnFilterType(wxCommandEvent& event)
 void MyFrame::OnFilterSearch(wxCommandEvent& event)
 {
     wxString Text = m_FilterCtrl->GetValue();
-    wxDataViewItem Select = m_entity_view_model->SelectText(Text, eSearchDirection::NEXT, false, m_MatchCaseCheck->IsChecked());
+    EntityTreeModelNode* Node = (EntityTreeModelNode*)(m_ctrl[0]->GetSelection().GetID());
+    if (Node == nullptr) {
+        Node = (EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID());
+    }
 
+    if (Node == nullptr) {
+        return;
+    }
+
+    EntityTreeModelNode* Found = Node->FindFromHere(nullptr, Text, eSearchDirection::NEXT, false, m_MatchCaseCheck->IsChecked());
+    if (Found == nullptr) {
+        wxMessageBox(wxString("Could not find:") + Text, "Search", wxOK);
+        return;
+    }
+
+    wxDataViewItem Select = wxDataViewItem(Found);
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
@@ -2255,6 +2271,12 @@ void MyFrame::NavBackward(wxCommandEvent& event)
     m_LastNavigation.pop_back();
     m_NextNavigation.push_back(CurrentNavLocation);
 
+    if (m_LastNavigation.empty() != false) {
+        return;
+    }
+
+    CurrentNavLocation = m_LastNavigation.back();
+
     // Select and make visible.
     if (CurrentNavLocation.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(CurrentNavLocation);
@@ -2271,6 +2293,13 @@ void MyFrame::NavForward(wxCommandEvent& event)
     wxDataViewItem CurrentNavLocation = m_NextNavigation.back();
     m_NextNavigation.pop_back();
     m_LastNavigation.push_back(CurrentNavLocation);
+    if (m_LastNavigation.size() == 1) {
+        if (m_NextNavigation.empty() != false) {
+            return;
+        }
+
+        CurrentNavLocation = m_NextNavigation.back();
+    }
 
     // Select and make visible.
     if (CurrentNavLocation.IsOk() != false) {
@@ -2282,7 +2311,22 @@ void MyFrame::NavForward(wxCommandEvent& event)
 void MyFrame::SearchBackward(wxCommandEvent& event)
 {
     wxString str = m_FilterCtrl->GetValue().c_str();
-    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::PREV, true, m_MatchCaseCheck->IsChecked());
+    EntityTreeModelNode* Node = (EntityTreeModelNode*)(m_ctrl[0]->GetSelection().GetID());
+    if (Node == nullptr) {
+        Node = (EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID());
+    }
+
+    if (Node == nullptr) {
+        return;
+    }
+
+    EntityTreeModelNode* Found = Node->FindFromHere(nullptr, str, eSearchDirection::PREV, false, m_MatchCaseCheck->IsChecked());
+    if (Found == nullptr) {
+        wxMessageBox(wxString("Could not find:") + str, "Search", wxOK);
+        return;
+    }
+
+    wxDataViewItem Select = wxDataViewItem(Found);
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
@@ -2292,7 +2336,22 @@ void MyFrame::SearchBackward(wxCommandEvent& event)
 void MyFrame::SearchForward(wxCommandEvent& event)
 {
     wxString str = m_FilterCtrl->GetValue().c_str();
-    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, true, m_MatchCaseCheck->IsChecked());
+    EntityTreeModelNode* Node = (EntityTreeModelNode*)(m_ctrl[0]->GetSelection().GetID());
+    if (Node == nullptr) {
+        Node = (EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID());
+    }
+
+    if (Node == nullptr) {
+        return;
+    }
+
+    EntityTreeModelNode* Found = Node->FindFromHere(nullptr, str, eSearchDirection::NEXT, false, m_MatchCaseCheck->IsChecked());
+    if (Found == nullptr) {
+        wxMessageBox(wxString("Could not find:") + str, "Search", wxOK);
+        return;
+    }
+
+    wxDataViewItem Select = wxDataViewItem(Found);
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
@@ -2494,29 +2553,36 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
 
     // Add new array entry into the spawn group.
     {
-#if 0
         EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:entityDefs");
-        rapidjson::Value ParentKey("parent", m_Document.GetAllocator());
-        rapidjson::Value ParentValue("", m_Document.GetAllocator());
-        ParentValue.SetObject();
-        rapidjson::Value ValKey("name", m_Document.GetAllocator());
-        wxString EntityName = AI2Node->m_key;
-        rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
-        ParentValue.AddMember(ValKey, ValValue, m_Document.GetAllocator());
-        EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(nullptr, "parent", ParentKey, ParentValue, m_Document);
-        EnumChildren(ParentArrayItemNode, ParentValue, m_Document);
-        CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document);
-#else
-        EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:entityDefs");
-        rapidjson::Value ValKey("name", m_Document.GetAllocator());
-        wxString EntityName = AI2Node->m_key;
-        rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
-        EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
-        EnumChildren(ParentArrayItemNode, ValValue, m_Document);
-        CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
-#endif
-        Command->PushCommand(Insert);
-        Insert->Execute();
+        if (GroupArrayNode != nullptr) {
+            rapidjson::Value ValKey("name", m_Document.GetAllocator());
+            wxString EntityName = AI2Node->m_key;
+            rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+            EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
+            EnumChildren(ParentArrayItemNode, ValValue, m_Document);
+            CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
+            Command->PushCommand(Insert);
+            Insert->Execute();
+
+        } else {
+            // When no entitydefs are present check the parent.
+            GroupArrayNode = nullptr;
+            EntityTreeModelNode* SpawnGroupParentNode = EntityDefNode->Find("edit:spawnGroupParent");
+            if (SpawnGroupParentNode != nullptr) {
+                GroupArrayNode = Root->Find(wxString::Format("%s:entityDef %s:edit:entityDefs", SpawnGroupParentNode->m_value, SpawnGroupParentNode->m_value));
+            }
+
+            if (GroupArrayNode != nullptr) {
+                rapidjson::Value ValKey("name", m_Document.GetAllocator());
+                wxString EntityName = AI2Node->m_key;
+                rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+                EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
+                EnumChildren(ParentArrayItemNode, ValValue, m_Document);
+                CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
+                Command->PushCommand(Insert);
+                Insert->Execute();
+            }
+        }
     }
 
     {
