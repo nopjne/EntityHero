@@ -313,6 +313,116 @@ EntityTreeModelNode* EntityTreeModelNode::FindByName(size_t Depth, size_t MaxDep
     return nullptr;
 }
 
+EntityTreeModelNode* EntityTreeModelNode::Visit(wxString& Text, bool Exact, bool MatchCase)
+{
+    wxString StrText = Text;
+    wxString StrKey = m_key;
+    wxString StrValue = m_value;
+
+    if (MatchCase == false) {
+        StrText = StrText.Lower();
+        StrKey = StrKey.Lower();
+        StrValue = StrValue.Lower();
+    }
+
+    if ((StrText == StrKey || StrText == StrValue) ||
+        ((Exact == false) && (PartialMatch(StrText, StrKey) || PartialMatch(StrText, StrValue)))) {
+
+        return this;
+    }
+
+    return nullptr;
+}
+
+// EntityTreeModelNode* EntityTreeModelNode::FindFromHere(wxString& Text, eSearchDirection SearchDir, bool Exact, bool MatchCase)
+// {
+//     std::vector<size_t> StackIndex;
+//     std::vector<EntityTreeModelNode*> EntityStack; 
+//     EntityStack.push_back(this);
+//     StackIndex.push_back(m_children.size());
+//     while ((EntityStack.empty() == false) && (StackIndex.empty() == false)) {
+//         EntityTreeModelNode *Match = EntityStack.back()->Visit(Text, Exact, MatchCase);
+//         if (Match != nullptr) {
+//             return Match;
+//         }
+// 
+//         EntityStack.pop_back();
+// 
+//         if (StackIndex.back() == 0) {
+//             StackIndex.pop_back();
+//             continue;
+//         }
+// 
+//         auto Child = m_children[m_children.size() - StackIndex.back()];
+//         EntityStack.push_back(Child);
+//     }
+// 
+//     //Parent->FindFromHere(Text, SearchDir, Exact, MatchCase);
+//     return nullptr;
+// }
+
+// Fwd search
+// Next
+// if Found(return)
+// for each Child->Find()
+//    if Found (return)
+// if (Parent == invoker)
+// Parent->Find(Parent->Location(This)) // Skip when parent is invoker
+EntityTreeModelNode* EntityTreeModelNode::FindFromHere(EntityTreeModelNode* Invoker, wxString& Text, eSearchDirection SearchDir, bool Exact, bool MatchCase)
+{
+    EntityTreeModelNode *Found = nullptr;
+    // Skip first invocation.
+    if (Invoker == m_parent) {
+        Found = Visit(Text, Exact, MatchCase);
+    }
+
+    if (Found != nullptr) {
+        return Found;
+    }
+
+    // Check the location of the invoker in the child list, and start from that location.
+    if ((Invoker != nullptr) || (SearchDir == NEXT)) {
+        size_t Start = (SearchDir == NEXT) ? 0 : (m_children.size() - 1);
+        for (size_t i = 0; i < m_children.size(); i += 1) {
+            if (Invoker == m_children[i]) {
+                if (SearchDir == NEXT) {
+                    Start = i + 1;
+
+                } else {
+                    Start = i - 1;
+                }
+                break;
+            }
+        }
+
+        size_t Index = Start;
+        size_t End = (SearchDir == NEXT) ? m_children.size() : (-1);
+        int Direction = (SearchDir==NEXT)?1:(-1);
+        while (Index != End) {
+            auto Child = m_children[Index];
+            Found = Child->FindFromHere(this, Text, SearchDir, Exact, MatchCase);
+            if (Found != nullptr) {
+                return Found;
+            }
+
+            Index += Direction;
+        }
+    }
+
+    if ((SearchDir == PREV) && (Invoker != nullptr)) {
+        Found = Visit(Text, Exact, MatchCase);
+        if (Found != nullptr) {
+            return Found;
+        }
+    }
+
+    if ((m_parent != Invoker) && (m_parent != nullptr)) {
+        Found = m_parent->FindFromHere(this, Text, SearchDir, Exact, MatchCase);
+    }
+
+    return Found;
+}
+
 wxString m_PreviousToFind;
 size_t Index = -1;
 wxDataViewItem EntityTreeModel::SelectText(wxString& Text, eSearchDirection SearchDir, bool Exact, bool MatchCase)
