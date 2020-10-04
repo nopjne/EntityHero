@@ -789,6 +789,19 @@ bool EntityTreeModel::IsContainer( const wxDataViewItem &item ) const
     return node->IsContainer();
 }
 
+bool EntityTreeModel::IsArrayElement(const wxDataViewItem& item) const
+{
+    if (!item.IsOk())
+        return false;
+
+    EntityTreeModelNode* node = (EntityTreeModelNode*)item.GetID();
+    if (node->GetParent() == nullptr) {
+        return false;
+    }
+
+    return node->GetParent()->IsArray();
+}
+
 unsigned int EntityTreeModel::GetChildren( const wxDataViewItem &parent,
                                             wxDataViewItemArray &array ) const
 {

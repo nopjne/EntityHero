@@ -358,7 +358,7 @@ EntityTreeModelNode* GetExistingAI2Node(EntityTreeModelNode* root, wxString Enco
 }
 
 void EnumChildren(EntityTreeModelNode* Parent, rapidjson::Value& val, rapidjson::Document& Document);
-EntityTreeModelNode* RotationMatrixFromAngle(rapidjson::Document &Document, float Pitch, float Yaw, float Roll)
+EntityTreeModelNode* RotationMatrixFromAngle(rapidjson::Document &Document, float Yaw, float Pitch, float Roll)
 {
     float sr, sp, sy, cr, cp, cy;
     Yaw = wxDegToRad(Yaw);
@@ -416,4 +416,55 @@ EntityTreeModelNode* RotationMatrixFromAngle(rapidjson::Document &Document, floa
     EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "mat", MatrixKey, Matrix, Document);
     EnumChildren(Node, Matrix, Document);
     return Node;
+}
+
+wxString GetEntityClassName(EntityTreeModelNode* Node)
+{
+    if (Node == nullptr) {
+        return "";
+    }
+
+    // Walk up the chain untill an entitydef is present then look for layers.
+    EntityTreeModelNode* ClassNode = Node;
+    if (ClassNode->m_key.Matches("class") == false) {
+        while (ClassNode != nullptr) {
+            EntityTreeModelNode* ClassFound = ClassNode->Find("class");
+            if (ClassFound == nullptr) {
+                ClassNode = ClassNode->GetParent();
+
+            } else {
+                ClassNode = ClassFound;
+                break;
+            }
+        }
+    }
+
+    // Check EntityNode again as it may have been modified.
+    if (ClassNode == nullptr) {
+        return "";
+    }
+
+    return ClassNode->m_value;
+}
+
+EntityTreeModelNode* GetEntityDefNode(EntityTreeModelNode *Node)
+{
+    if (Node == nullptr) {
+        return nullptr;
+    }
+
+    // Walk up the chain untill an entitydef is present then look for layers.
+    EntityTreeModelNode* EntityNode = Node;
+    if (EntityNode->m_key.Matches("entityDef *") == false) {
+        while (EntityNode != nullptr) {
+            bool EntityFound = EntityNode->m_key.Matches("entityDef *");
+            if (EntityFound != false) {
+                break;
+            }
+
+            EntityNode = EntityNode->GetParent();
+        }
+    }
+
+    return EntityNode;
 }

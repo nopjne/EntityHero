@@ -61,6 +61,9 @@ int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& 
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
 int CompressEntities(byte* uncompressedData, size_t size, char** output, size_t& outputSize);
 
+void ConstructInsertSubMenu(wxMenu* Menu, EntityTreeModelNode* Node);
+EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &Document);
+
 #ifdef wxHAS_GENERIC_DATAVIEWCTRL
     #include "wx/headerctrl.h"
 #endif // wxHAS_GENERIC_DATAVIEWCTRL
@@ -113,6 +116,7 @@ class DeleteSubTreeCommand : public _CommandPattern {
     wxObjectDataPtr<EntityTreeModel> m_Model;
     size_t m_Position;
     bool m_Deleted;
+    bool m_WrappedNode;
     rapidjson::Value m_Key;
     rapidjson::Value m_Value;
 public:
@@ -125,6 +129,7 @@ public:
         m_Deleted = false;
         m_Key = *Node->m_keyRef;
         m_Value = *Node->m_valueRef;
+        m_WrappedNode = Node->IsWrapped();
     }
     ~DeleteSubTreeCommand() {
         if (m_Deleted != false) {
@@ -141,7 +146,7 @@ public:
     }
 
     void Revert() {
-        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument);
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_WrappedNode);
         m_Deleted = false;
     }
 };
@@ -156,9 +161,10 @@ class InsertSubTreeCommand : public _CommandPattern {
     rapidjson::Value m_Key;
     rapidjson::Value m_Value;
     bool m_AsObject;
+    bool m_Owner;
 public:
-    InsertSubTreeCommand(wxDataViewItem Item, wxDataViewItem Parent, size_t Position, wxObjectDataPtr<EntityTreeModel> Model, Document& JsonDocument, bool AsObject = false) :
-        m_Item(Item), m_ParentItem(Parent), m_Position(Position), m_Model(Model), m_JsonDocument(JsonDocument), m_AsObject(AsObject) {
+    InsertSubTreeCommand(wxDataViewItem Item, wxDataViewItem Parent, size_t Position, wxObjectDataPtr<EntityTreeModel> Model, Document& JsonDocument, bool AsObject = false, bool Owner = true) :
+        m_Item(Item), m_ParentItem(Parent), m_Position(Position), m_Model(Model), m_JsonDocument(JsonDocument), m_AsObject(AsObject), m_Owner(Owner) {
 
         EntityTreeModelNode* Node = (EntityTreeModelNode*)Item.GetID();
         m_Position = Position;
@@ -169,7 +175,7 @@ public:
     }
 
     ~InsertSubTreeCommand() {
-        if (m_Deleted != false) {
+        if ((m_Owner != false) && (m_Deleted != false)) {
             delete (EntityTreeModelNode*)m_Item.GetID();
         }
     }
@@ -432,7 +438,7 @@ private:
     wxTimer m_MHStatusTimer;
     wxStaticText* m_MHInterfaceStatus;
     wxString m_MhText;
-
+    EntityTreeModelNode* m_DraggingNow;
 private:
     // Flag used by OnListValueChanged(), see there.
     bool m_eventFromProgram;
@@ -607,7 +613,7 @@ bool MyApp::OnInit()
     }
 
     MyFrame *frame =
-        new MyFrame(NULL, "EntityHero v0.2 (by Scorp0rX0r)", 40, 40, 1000, 540);
+        new MyFrame(NULL, "EntityHero v0.3 (by Scorp0rX0r)", 40, 40, 1000, 540);
 
     frame->Show(true);
     return true;
@@ -964,9 +970,9 @@ void MyFrame::BuildDataViewCtrl(wxPanel* parent, wxSizer* sizer, unsigned int nP
             m_ctrl[0]->Expand(m_entity_view_model->GetRoot());
 
 
-#if wxUSE_DRAG_AND_DROP && wxUSE_UNICODE && _DEBUG
-            m_ctrl[Page_EntityView]->EnableDragSource( wxDF_UNICODETEXT );
-            m_ctrl[Page_EntityView]->EnableDropTarget( wxDF_UNICODETEXT );
+#if wxUSE_DRAG_AND_DROP && wxUSE_UNICODE
+            m_ctrl[Page_EntityView]->EnableDragSource(wxDF_UNICODETEXT);
+            m_ctrl[Page_EntityView]->EnableDropTarget(wxDF_UNICODETEXT);
 #endif // wxUSE_DRAG_AND_DROP && wxUSE_UNICODE
 
             // column 0 of the view control:
@@ -1257,7 +1263,7 @@ void MyFrame::OnBeginDrag( wxDataViewEvent &event )
     wxDataViewItem item( event.GetItem() );
 
     // only allow drags for item, not containers
-    if (m_entity_view_model->IsContainer( item ) == false)
+    if (m_entity_view_model->IsArrayElement( item ) == false)
     {
         wxLogMessage("Forbidding starting dragging");
         event.Veto();
@@ -1265,9 +1271,10 @@ void MyFrame::OnBeginDrag( wxDataViewEvent &event )
     }
 
     EntityTreeModelNode *node = (EntityTreeModelNode*) item.GetID();
-    wxTextDataObject *obj = new wxTextDataObject;
-    obj->SetText( node->m_key );
-    event.SetDataObject( obj );
+    m_DraggingNow = node;
+    wxTextDataObject* obj = new wxTextDataObject;
+    obj->SetText(node->m_key);
+    event.SetDataObject(obj);
     event.SetDragFlags(wxDrag_AllowMove); // allows both copy and move
 
     wxLogMessage("Starting dragging \"%s\"", node->m_key);
@@ -1277,37 +1284,103 @@ void MyFrame::OnDropPossible( wxDataViewEvent &event )
 {
     // Only items that are part of an array may be reordered.
     // Item is array item and has to be the same level (have same parent).
-    if (event.GetDataFormat() != wxDF_UNICODETEXT)
+    //wxLogMessage("Proposed drop index = %i", "", event.GetProposedDropIndex());
+
+    if (event.GetDataFormat() != wxDF_UNICODETEXT) {
         event.Veto();
-    else
-        event.SetDropEffect(wxDragMove);	// check 'move' drop effect
+    }
+
+    // Node dropped on parent.
+    // Node dropped on other child.
+    // Node dropped on other location.
+    wxDataViewItem item(event.GetItem());
+    EntityTreeModelNode* Node = (EntityTreeModelNode*)item.GetID();
+    if (m_DraggingNow->GetParent() == Node->GetParent()) {
+        // Allow
+        event.SetDropEffect(wxDragMove); // check 'move' drop effect
+
+    } else if (m_DraggingNow->GetParent() == Node) {
+        // Allow
+        event.SetDropEffect(wxDragMove); // check 'move' drop effect
+
+    } else {
+        event.Veto();
+    }
 }
 
 void MyFrame::OnDrop( wxDataViewEvent &event )
 {
-    wxDataViewItem item( event.GetItem() );
-
-    if (event.GetDataFormat() != wxDF_UNICODETEXT)
-    {
+    wxDataViewItem item(event.GetItem());
+    if (event.GetDataFormat() != wxDF_UNICODETEXT) {
         event.Veto();
         return;
     }
 
-    wxTextDataObject obj;
-    obj.SetData( wxDF_UNICODETEXT, event.GetDataSize(), event.GetDataBuffer() );
+    EntityTreeModelNode* Node = (EntityTreeModelNode*)item.GetID();
+    //if ( item.IsOk() )
+    //{
+        // These are invalid..
+        // if (m_entity_view_model->IsContainer(item))
+        // {
+        //     wxLogMessage("Text '%s' dropped in container '%s' (proposed index = %i)",
+        //                  obj.GetText(), m_entity_view_model->GetKey(item), event.GetProposedDropIndex());
+        // }
+        // else
+        //     wxLogMessage("Text '%s' dropped on item '%s'", obj.GetText(), m_entity_view_model->GetKey(item));
+    //}
+    //else
+        wxLogMessage("Text '%s' dropped on background (proposed index = %i)", Node->m_key, event.GetProposedDropIndex());
 
-    if ( item.IsOk() )
-    {
-        if (m_entity_view_model->IsContainer(item))
-        {
-            wxLogMessage("Text '%s' dropped in container '%s' (proposed index = %i)",
-                         obj.GetText(), m_entity_view_model->GetKey(item), event.GetProposedDropIndex());
+    // Node dropped on parent.
+    size_t DropIndex = 0;
+    if (m_DraggingNow->GetParent() == Node) {
+        DropIndex = event.GetProposedDropIndex();
+        if (DropIndex == (-1)) {
+            return;
         }
-        else
-            wxLogMessage("Text '%s' dropped on item '%s'", obj.GetText(), m_entity_view_model->GetKey(item));
+
+        size_t OriginalIndex = Node->GetChildIndex(m_DraggingNow);
+        if (OriginalIndex < DropIndex) {
+            DropIndex -= 1;
+        }
+
+    } else if (m_DraggingNow == Node) {
+        return;
+
+    } else if (m_DraggingNow->GetParent() == Node->GetParent()) {
+        // Node dropped on other child.
+        DropIndex = Node->GetParent()->GetChildIndex(Node);
+        size_t OriginalIndex = Node->GetParent()->GetChildIndex(m_DraggingNow);
+        if (OriginalIndex < DropIndex) {
+            if (event.GetProposedDropIndex() == -1) {
+                DropIndex -= 1;
+            }
+
+        } else {
+            if (event.GetProposedDropIndex() != -1) {
+                DropIndex += 1;
+            }
+        }
+
+    } else {
+        // Node dropped on other location.
+        return;
     }
-    else
-        wxLogMessage("Text '%s' dropped on background (proposed index = %i)", obj.GetText(), event.GetProposedDropIndex());
+
+    // Construct a command group.
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    
+    // Construct a remove command.
+    CommandPattern Delete = make_shared<DeleteSubTreeCommand>(wxDataViewItem(m_DraggingNow), m_entity_view_model, m_Document);
+
+    // Construct an insert command.
+    bool NeedsObjectWrapper = m_DraggingNow->IsWrapped();
+    CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(m_DraggingNow), wxDataViewItem(m_DraggingNow->GetParent()), DropIndex, m_entity_view_model, m_Document, NeedsObjectWrapper, false);
+
+    Group->PushCommand(Delete);
+    Group->PushCommand(Insert);
+    Group->Execute();
+    PushCommand(Group);
 }
 
 #endif // wxUSE_DRAG_AND_DROP
@@ -1678,6 +1751,25 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             SetRotationNodeFromMH(Node);
         }
         break;
+        default:
+            wxString MenuString = event.GetString();
+            EntityTreeModelNode* Node = ConstructInsertionTree(MenuString, m_Document);
+            if (Node != nullptr) {
+                EntityTreeModelNode* ItemNode = (EntityTreeModelNode*)Item.GetID();
+                bool Wrapped = ItemNode->IsWrapped();
+                CommandPattern Insert = make_shared<InsertSubTreeCommand>(
+                    wxDataViewItem(Node),
+                    wxDataViewItem(ItemNode->GetParent()),
+                    pos,
+                    m_entity_view_model,
+                    m_Document,
+                    Wrapped
+                    );
+
+                Insert->Execute();
+                PushCommand(Insert);
+            }
+        break;
     }
 }
 
@@ -1733,10 +1825,13 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     int pos = m_ctrl[Page_EntityView]->GetColumnPosition(event.GetDataViewColumn());
     wxLogMessage( "wxEVT_DATAVIEW_ITEM_CONTEXT_MENU, Item: %s Column:%i", title, pos );
 
+    wxMenu *SubMenuInsert = new wxMenu;
     wxMenu menu;
     menu.Append(CID_GOTO_REFERENCE, "Goto reference");
     menu.Append(CID_DUPLICATE, "Duplicate");
     menu.Append(CID_DELETE, "Delete");
+    ConstructInsertSubMenu(SubMenuInsert, (EntityTreeModelNode*)event.GetItem().GetID());
+    menu.AppendSubMenu(SubMenuInsert, "Insert");
 #ifdef _DEBUG
     menu.Append(CID_EDIT_KEY_NAME, "Edit key name");
     menu.Append(CID_ADD_ITEM, "Add new node");
@@ -2024,10 +2119,8 @@ void MyFrame::ConstructTreeView()
     //m_entity_view_model->DecRef();
     m_ctrl[0]->Expand(m_entity_view_model->GetRoot());
 
-#ifdef _DEBUG
     m_ctrl[Page_EntityView]->EnableDragSource(wxDF_UNICODETEXT);
     m_ctrl[Page_EntityView]->EnableDropTarget(wxDF_UNICODETEXT);
-#endif
 
     // column 0 of the view control:
     wxDataViewTextRenderer* tr =
@@ -2654,8 +2747,8 @@ bool MyFrame::SetRotationNodeFromMH(EntityTreeModelNode* Node)
     float x,y,z,Pitch,Yaw;
     char Info[MAX_PATH];
     m_MeatHook.GetSpawnInfo((unsigned char*)Info);
-    sscanf_s(Info, "%f %f %f %f %f", &x, &y, &z, &Pitch, &Yaw);
-    EntityTreeModelNode *RotationNode = RotationMatrixFromAngle(m_Document, Pitch, Yaw, 0);
+    sscanf_s(Info, "%f %f %f %f %f", &x, &y, &z, &Yaw, &Pitch);
+    EntityTreeModelNode *RotationNode = RotationMatrixFromAngle(m_Document, Yaw, Pitch, 0);
 
     GroupedCommand Group = make_shared<_GroupedCommand>();
     // Remove Node
@@ -2669,4 +2762,76 @@ bool MyFrame::SetRotationNodeFromMH(EntityTreeModelNode* Node)
     Group->Execute();
     PushCommand(Group);
     return true;
+}
+
+void ConstructInsertSubMenu(wxMenu *Menu, EntityTreeModelNode *Node)
+{
+    size_t SubMenuIndex = 50;
+    for (auto Entry : MenuDescription) {
+        if (GetEntityClassName(Node).c_str().AsChar() != Entry.second.Class) {
+            continue;
+        }
+
+        // Class has entry description.
+        EntityTreeModelNode *EntityDefNode = GetEntityDefNode(Node);
+        if (EntityDefNode->Find(Entry.second.Requirements) == nullptr) {
+            continue;
+        }
+
+        if (Node->GetParent()->m_key.Matches("events") == false) {
+            continue;
+        }
+
+        // Create a map from search arguments.
+        std::vector<std::string> SearchArguments;
+        for (auto Event : EventDescriptor) {
+            for (auto StringMatch : Entry.second.StringMatch) {
+                if (wxString(Event.first).Lower().Matches(wxString(StringMatch).Lower()) != false) {
+                    SearchArguments.push_back(Event.first);
+                    break;
+                }
+            }
+        }
+
+        // Add the found items to the menu.
+        wxMenu* SubMenu = new wxMenu;
+        Menu->AppendSubMenu(SubMenu, Entry.first);
+        for (auto Argument : SearchArguments) {
+            SubMenu->Append(SubMenuIndex, Argument);
+            SubMenuIndex += 1;
+        }
+    }
+}
+
+EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &Document)
+{
+    if (EventDescriptor.find(Name.c_str().AsChar()) == EventDescriptor.end()) {
+        return nullptr;
+    }
+
+    rapidjson::Value EventCallKey("eventCall", Document.GetAllocator());
+    rapidjson::Value EventCallValue("", Document.GetAllocator());
+    EventCallValue.SetObject();
+    EventCallValue.AddMember(rapidjson::Value("eventDef", Document.GetAllocator()), rapidjson::Value(Name.c_str().AsChar(), Document.GetAllocator()), Document.GetAllocator());
+    rapidjson::Value Args;
+    Args.SetObject();
+    Args.SetFlags(true, 0x4000);
+    Args.AddMember(rapidjson::Value("num", Document.GetAllocator()), rapidjson::Value(0, Document.GetAllocator()), Document.GetAllocator());
+    for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
+        Args.AddMember(rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()), rapidjson::Value(Event.first.c_str(), Document.GetAllocator()), Document.GetAllocator());
+    }
+
+    for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
+        Args.MemberBegin()[Event.second.Index + 1].name.SetString("item[x]");
+        Args.MemberBegin()[Event.second.Index + 1].value.AddMember(
+            rapidjson::Value(Event.first.c_str(), Document.GetAllocator()), 
+            rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()), 
+            Document.GetAllocator()
+            );
+    }
+
+    EventCallValue.AddMember(rapidjson::Value("args", Document.GetAllocator()), Args, Document.GetAllocator());
+    EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "eventCall", EventCallKey, EventCallValue, Document);
+    EnumChildren(Node, EventCallValue, Document);
+    return Node;
 }

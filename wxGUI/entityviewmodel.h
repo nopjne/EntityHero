@@ -76,6 +76,28 @@ public:
         { return m_children; }
     EntityTreeModelNode* GetNthChild( unsigned int n )
         { return m_children.Item( n ); }
+    bool IsArray()
+        { return ((m_valueRef->GetFlags() & 0x4000) != 0); }
+
+    bool IsWrapped() {
+        // Check parent get index
+        if (m_parent == nullptr) {
+            return false;
+        }
+
+        size_t Index = m_parent->GetChildIndex(this);
+        if (Index == (-1)) {
+            return false;
+        }
+
+        auto JsonChild = m_parent->m_valueRef->MemberBegin() + Index;
+        if (&(JsonChild->value) != m_valueRef) {
+            return true;
+        }
+
+        // Check 
+        return false;
+    }
 
     void Insert(EntityTreeModelNode* child, unsigned int n, rapidjson::Document& Document, bool AsObject = false)
     {
@@ -160,6 +182,8 @@ public:
     EntityTreeModelNode* Duplicate(wxDataViewItem *Item, rapidjson::Document& Document);
     int Compare( const wxDataViewItem &item1, const wxDataViewItem &item2,
                  unsigned int column, bool ascending ) const wxOVERRIDE;
+
+    bool IsArrayElement(const wxDataViewItem& item) const;
 
     virtual unsigned int GetColumnCount() const wxOVERRIDE
     {

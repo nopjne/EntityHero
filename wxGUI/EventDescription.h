@@ -4,6 +4,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 struct EntryDescription {
     std::string Type;
@@ -11,6 +12,14 @@ struct EntryDescription {
 };
 
 extern std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
+
+struct MenuDescriptor {
+    std::string Class; // idEncounterManager
+    std::string Requirements; // edit:encounterComponent:entityEvents
+    std::vector<std::string> StringMatch;
+};
+
+extern std::map<std::string, MenuDescriptor> MenuDescription;
 
 bool LoadEventDescriptor(void);
 

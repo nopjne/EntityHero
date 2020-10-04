@@ -3,6 +3,11 @@
 #include "EventDescription.h"
 
 std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
+std::map<std::string, MenuDescriptor> MenuDescription = {
+    {"spawn", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"spawn*", "*spawn", "*spawn*", "spawn"}}},
+    {"wait", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"wait*", "*wait", "wait", "*wait*"}}},
+    {"maintain", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"maintain*", "*maintain*", "*maintain", "maintain"}}},
+};
 
 bool LoadEventDescriptor(void)
 {
