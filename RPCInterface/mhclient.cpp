@@ -174,6 +174,24 @@ bool MeathookInterface::DestroyRpcInterface() {
     return 0;
 }
 
+bool MeathookInterface::GetActiveEncounter(int *Size, char* pBuffer)
+{
+    RpcTryExcept
+    {
+        ::GetActiveEncounter(meathook_interface_v1_0_c_ifspec, Size, (unsigned char*)pBuffer);
+        return true;
+    }
+    RpcExcept(1)
+    {
+        int ulCode = RpcExceptionCode();
+        printf("Runtime reported exception 0x%lx = %ld\n", ulCode, ulCode);
+        return false;
+    }
+    RpcEndExcept
+
+    return false;
+}
+
 bool MeathookInterface::InitializeRpcInterface()
 {
     RPC_STATUS status;

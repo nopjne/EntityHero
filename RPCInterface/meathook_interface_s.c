@@ -35,7 +35,7 @@
 #include "meathook_interface.h"
 
 #define TYPE_FORMAT_STRING_SIZE   43                                
-#define PROC_FORMAT_STRING_SIZE   253                               
+#define PROC_FORMAT_STRING_SIZE   295                               
 #define EXPR_FORMAT_STRING_SIZE   1                                 
 #define TRANSMIT_AS_TABLE_SIZE    0            
 #define WIRE_MARSHAL_TABLE_SIZE   0            
@@ -251,7 +251,7 @@ static const meathook_interface_MIDL_PROC_FORMAT_STRING meathook_interface__MIDL
 /* 170 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
 /* 172 */	NdrFcShort( 0x1e ),	/* Type Offset=30 */
 
-	/* Procedure GetSpawnInfo */
+	/* Procedure GetActiveEncounter */
 
 /* 174 */	0x0,		/* 0 */
 			0x48,		/* Old Flags:  */
@@ -285,23 +285,23 @@ static const meathook_interface_MIDL_PROC_FORMAT_STRING meathook_interface__MIDL
 /* 212 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
 /* 214 */	NdrFcShort( 0x1e ),	/* Type Offset=30 */
 
-	/* Procedure KeepAlive */
+	/* Procedure GetSpawnInfo */
 
 /* 216 */	0x0,		/* 0 */
 			0x48,		/* Old Flags:  */
 /* 218 */	NdrFcLong( 0x0 ),	/* 0 */
 /* 222 */	NdrFcShort( 0x5 ),	/* 5 */
-/* 224 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
+/* 224 */	NdrFcShort( 0x18 ),	/* x86 Stack size/offset = 24 */
 /* 226 */	0x32,		/* FC_BIND_PRIMITIVE */
 			0x0,		/* 0 */
 /* 228 */	NdrFcShort( 0x0 ),	/* x86 Stack size/offset = 0 */
 /* 230 */	NdrFcShort( 0x1c ),	/* 28 */
 /* 232 */	NdrFcShort( 0x1c ),	/* 28 */
-/* 234 */	0x40,		/* Oi2 Flags:  has ext, */
-			0x1,		/* 1 */
+/* 234 */	0x41,		/* Oi2 Flags:  srv must size, has ext, */
+			0x2,		/* 2 */
 /* 236 */	0xa,		/* 10 */
-			0x1,		/* Ext Flags:  new corr desc, */
-/* 238 */	NdrFcShort( 0x0 ),	/* 0 */
+			0x3,		/* Ext Flags:  new corr desc, clt corr check, */
+/* 238 */	NdrFcShort( 0x1 ),	/* 1 */
 /* 240 */	NdrFcShort( 0x0 ),	/* 0 */
 /* 242 */	NdrFcShort( 0x0 ),	/* 0 */
 /* 244 */	NdrFcShort( 0x0 ),	/* 0 */
@@ -311,6 +311,40 @@ static const meathook_interface_MIDL_PROC_FORMAT_STRING meathook_interface__MIDL
 /* 246 */	NdrFcShort( 0x158 ),	/* Flags:  in, out, base type, simple ref, */
 /* 248 */	NdrFcShort( 0x8 ),	/* x86 Stack size/offset = 8 */
 /* 250 */	0x8,		/* FC_LONG */
+			0x0,		/* 0 */
+
+	/* Parameter pBuffer */
+
+/* 252 */	NdrFcShort( 0x113 ),	/* Flags:  must size, must free, out, simple ref, */
+/* 254 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
+/* 256 */	NdrFcShort( 0x1e ),	/* Type Offset=30 */
+
+	/* Procedure KeepAlive */
+
+/* 258 */	0x0,		/* 0 */
+			0x48,		/* Old Flags:  */
+/* 260 */	NdrFcLong( 0x0 ),	/* 0 */
+/* 264 */	NdrFcShort( 0x6 ),	/* 6 */
+/* 266 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
+/* 268 */	0x32,		/* FC_BIND_PRIMITIVE */
+			0x0,		/* 0 */
+/* 270 */	NdrFcShort( 0x0 ),	/* x86 Stack size/offset = 0 */
+/* 272 */	NdrFcShort( 0x1c ),	/* 28 */
+/* 274 */	NdrFcShort( 0x1c ),	/* 28 */
+/* 276 */	0x40,		/* Oi2 Flags:  has ext, */
+			0x1,		/* 1 */
+/* 278 */	0xa,		/* 10 */
+			0x1,		/* Ext Flags:  new corr desc, */
+/* 280 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 282 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 284 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 286 */	NdrFcShort( 0x0 ),	/* 0 */
+
+	/* Parameter Size */
+
+/* 288 */	NdrFcShort( 0x158 ),	/* Flags:  in, out, base type, simple ref, */
+/* 290 */	NdrFcShort( 0x8 ),	/* x86 Stack size/offset = 8 */
+/* 292 */	0x8,		/* FC_LONG */
 			0x0,		/* 0 */
 
 			0x0
@@ -369,7 +403,8 @@ static const unsigned short meathook_interface_FormatStringOffsetTable[] =
     84,
     132,
     174,
-    216
+    216,
+    258
     };
 
 
@@ -405,11 +440,12 @@ static const RPC_DISPATCH_FUNCTION meathook_interface_table[] =
     NdrServerCall2,
     NdrServerCall2,
     NdrServerCall2,
+    NdrServerCall2,
     0
     };
 static const RPC_DISPATCH_TABLE meathook_interface_v1_0_DispatchTable = 
     {
-    6,
+    7,
     (RPC_DISPATCH_FUNCTION*)meathook_interface_table
     };
 
@@ -419,6 +455,7 @@ static const SERVER_ROUTINE meathook_interface_ServerRoutineTable[] =
     (SERVER_ROUTINE)PushEntitiesFile,
     (SERVER_ROUTINE)UploadData,
     (SERVER_ROUTINE)GetEntitiesFile,
+    (SERVER_ROUTINE)GetActiveEncounter,
     (SERVER_ROUTINE)GetSpawnInfo,
     (SERVER_ROUTINE)KeepAlive
     };
