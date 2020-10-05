@@ -61,7 +61,7 @@ int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& 
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
 int CompressEntities(byte* uncompressedData, size_t size, char** output, size_t& outputSize);
 
-void ConstructInsertSubMenu(wxMenu* Menu, EntityTreeModelNode* Node);
+void ConstructInsertSubMenu(wxMenu* Menu, EntityTreeModelNode* Node, std::map<int, std::string> &MenuMap);
 EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &Document);
 
 #ifdef wxHAS_GENERIC_DATAVIEWCTRL
@@ -389,6 +389,7 @@ private:
     void SearchForward(wxCommandEvent& event);
     void MHPause(wxCommandEvent& event);
     void MHReload(wxCommandEvent& event);
+    void MHGotoCurrentEncounter(wxCommandEvent& event);
     void MHStatusCheck(wxTimerEvent& event);
     void ResolveEncounterSpawnChange(EntityTreeModelNode* EncounterNode, wxString OldValue);
     bool SetLocationNodeFromMH(EntityTreeModelNode* Node);
@@ -439,6 +440,7 @@ private:
     wxStaticText* m_MHInterfaceStatus;
     wxString m_MhText;
     EntityTreeModelNode* m_DraggingNow;
+    std::map<int, std::string> m_MenuMap;
 private:
     // Flag used by OnListValueChanged(), see there.
     bool m_eventFromProgram;
@@ -678,6 +680,7 @@ enum
     ID_EXPAND           = 105,
     ID_MH_PAUSE,
     ID_MH_RELOAD,
+    ID_MH_GOTO_CURRENT_ENCOUNTER,
     ID_FILTER_SEARCH,
     ID_FILTER_SEARCH_RESOURCES,
 
@@ -750,7 +753,8 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_BUTTON(ID_SEARCH_FORWARD, MyFrame::SearchForward)
     EVT_BUTTON(ID_MH_PAUSE, MyFrame::MHPause)
     EVT_BUTTON(ID_MH_RELOAD, MyFrame::MHReload)
-
+    EVT_BUTTON(ID_MH_GOTO_CURRENT_ENCOUNTER, MyFrame::MHGotoCurrentEncounter)
+    
     EVT_DATAVIEW_ITEM_VALUE_CHANGED( ID_ENTITY_CTRL, MyFrame::OnValueChanged )
 
     EVT_DATAVIEW_ITEM_ACTIVATED(ID_ENTITY_CTRL, MyFrame::OnActivated )
@@ -870,7 +874,8 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
                                    "&Pause"), border);
     sizerCurrent->Add(new wxButton(firstPanel, ID_MH_RELOAD,
                                    "&Reload level"), border);
-
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_GOTO_CURRENT_ENCOUNTER,
+                                   "&Goto current encounter"), border);
     // 
     // Per request from the creator of meathook, randomize the displayed meathook name.
     //
@@ -1591,6 +1596,7 @@ enum CONTEXT_ID {
     CID_REINJECT_FILE,
     CID_MH_GET_POSITION,
     CID_MH_GET_ROTATION,
+    CID_MAX
 };
 
 void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
@@ -1752,22 +1758,24 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
         }
         break;
         default:
-            wxString MenuString = event.GetString();
-            EntityTreeModelNode* Node = ConstructInsertionTree(MenuString, m_Document);
-            if (Node != nullptr) {
-                EntityTreeModelNode* ItemNode = (EntityTreeModelNode*)Item.GetID();
-                bool Wrapped = ItemNode->IsWrapped();
-                CommandPattern Insert = make_shared<InsertSubTreeCommand>(
-                    wxDataViewItem(Node),
-                    wxDataViewItem(ItemNode->GetParent()),
-                    pos,
-                    m_entity_view_model,
-                    m_Document,
-                    Wrapped
-                    );
+            if (m_MenuMap.find(event.GetId()) != m_MenuMap.end()) {
+                wxString MenuString = m_MenuMap[event.GetId()];
+                EntityTreeModelNode* Node = ConstructInsertionTree(MenuString, m_Document);
+                if (Node != nullptr) {
+                    EntityTreeModelNode* ItemNode = (EntityTreeModelNode*)Item.GetID();
+                    bool Wrapped = ItemNode->IsWrapped();
+                    CommandPattern Insert = make_shared<InsertSubTreeCommand>(
+                        wxDataViewItem(Node),
+                        wxDataViewItem(ItemNode->GetParent()),
+                        pos,
+                        m_entity_view_model,
+                        m_Document,
+                        Wrapped
+                        );
 
-                Insert->Execute();
-                PushCommand(Insert);
+                    Insert->Execute();
+                    PushCommand(Insert);
+                }
             }
         break;
     }
@@ -1830,7 +1838,7 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     menu.Append(CID_GOTO_REFERENCE, "Goto reference");
     menu.Append(CID_DUPLICATE, "Duplicate");
     menu.Append(CID_DELETE, "Delete");
-    ConstructInsertSubMenu(SubMenuInsert, (EntityTreeModelNode*)event.GetItem().GetID());
+    ConstructInsertSubMenu(SubMenuInsert, (EntityTreeModelNode*)event.GetItem().GetID(), m_MenuMap);
     menu.AppendSubMenu(SubMenuInsert, "Insert");
 #ifdef _DEBUG
     menu.Append(CID_EDIT_KEY_NAME, "Edit key name");
@@ -2764,9 +2772,10 @@ bool MyFrame::SetRotationNodeFromMH(EntityTreeModelNode* Node)
     return true;
 }
 
-void ConstructInsertSubMenu(wxMenu *Menu, EntityTreeModelNode *Node)
+void ConstructInsertSubMenu(wxMenu *Menu, EntityTreeModelNode *Node, std::map<int, std::string> &MenuMap)
 {
-    size_t SubMenuIndex = 50;
+    MenuMap.clear();
+    size_t SubMenuIndex = CID_MAX;
     for (auto Entry : MenuDescription) {
         if (GetEntityClassName(Node).c_str().AsChar() != Entry.second.Class) {
             continue;
@@ -2798,6 +2807,7 @@ void ConstructInsertSubMenu(wxMenu *Menu, EntityTreeModelNode *Node)
         Menu->AppendSubMenu(SubMenu, Entry.first);
         for (auto Argument : SearchArguments) {
             SubMenu->Append(SubMenuIndex, Argument);
+            MenuMap[SubMenuIndex] = Argument;
             SubMenuIndex += 1;
         }
     }
@@ -2815,14 +2825,17 @@ EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &
     EventCallValue.AddMember(rapidjson::Value("eventDef", Document.GetAllocator()), rapidjson::Value(Name.c_str().AsChar(), Document.GetAllocator()), Document.GetAllocator());
     rapidjson::Value Args;
     Args.SetObject();
+    auto NulValue = rapidjson::Value("0", Document.GetAllocator());
+    NulValue.SetInt(0);
+    Args.AddMember(rapidjson::Value("num", Document.GetAllocator()), NulValue, Document.GetAllocator());
     Args.SetFlags(true, 0x4000);
-    Args.AddMember(rapidjson::Value("num", Document.GetAllocator()), rapidjson::Value(0, Document.GetAllocator()), Document.GetAllocator());
     for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
         Args.AddMember(rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()), rapidjson::Value(Event.first.c_str(), Document.GetAllocator()), Document.GetAllocator());
     }
 
     for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
-        Args.MemberBegin()[Event.second.Index + 1].name.SetString("item[x]");
+        Args.MemberBegin()[Event.second.Index + 1].name.SetString("item[x]", Document.GetAllocator());
+        Args.MemberBegin()[Event.second.Index + 1].value.SetObject();
         Args.MemberBegin()[Event.second.Index + 1].value.AddMember(
             rapidjson::Value(Event.first.c_str(), Document.GetAllocator()), 
             rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()), 
@@ -2834,4 +2847,27 @@ EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &
     EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "eventCall", EventCallKey, EventCallValue, Document);
     EnumChildren(Node, EventCallValue, Document);
     return Node;
+}
+
+void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
+{
+    char ActiveEncounter[MAX_PATH];
+    int Size = sizeof(ActiveEncounter);
+    memset(ActiveEncounter, 0, sizeof(ActiveEncounter));
+    bool Result = m_MeatHook.GetActiveEncounter(&Size, ActiveEncounter);
+    if ((Result == false) || (Size == 0)) {
+        return;
+    }
+
+    EntityTreeModelNode *Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    EntityTreeModelNode *Found = Root->Find(wxString::Format("%s:entityDef %s", ActiveEncounter, ActiveEncounter));
+    if (Found == nullptr) {
+        return;
+    }
+
+    wxDataViewItem Select = wxDataViewItem(Found);
+    if (Select.IsOk() != false) {
+        m_ctrl[0]->SetCurrentItem(Select);
+        m_ctrl[0]->EnsureVisible(Select);
+    }
 }

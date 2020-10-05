@@ -24,6 +24,7 @@ public:
     bool PushEntitiesFile(char* pFileName, char* pBuffer, int Size);
     bool GetSpawnInfo(unsigned char* pBuffer);
     bool GetEntitiesFile(unsigned char* pBuffer, size_t* Size);
+    bool GetActiveEncounter(int* Size, char* pBuffer);
 
     static DWORD WINAPI KeepAlive(LPVOID Data);
 };
