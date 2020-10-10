@@ -158,6 +158,11 @@ void EnumChildren(EntityTreeModelNode *Parent, Value &val, rapidjson::Document& 
         return;
     }
 
+    // Copy entity naming up.
+    if ((Parent->m_keyRef->IsString() != false) && (strcmp(Parent->m_keyRef->GetString(), "entity") == 0)) {
+        Parent->m_key = wxString((Parent->m_valueRef->FindMember("entityDef", false)->name.GetString()) + 10);
+    }
+
     int ArrayItemCount = 0;
     int ArrayItem = 0;
     for (auto member = val.MemberBegin(); member != val.MemberEnd(); member++) {
@@ -189,15 +194,7 @@ void EnumChildren(EntityTreeModelNode *Parent, Value &val, rapidjson::Document& 
             continue;
         }
         if (member->value.GetType() == kObjectType) {
-            const char* Name;
-            if (strcmp(member->name.GetString(), "entity") == 0) {
-                Name = (member->value.FindMember("entityDef", false)->name.GetString()) + 10;
-
-            } else {
-                Name = ValueToString((*member).name);
-            }
-
-            EntityTreeModelNode *child = new EntityTreeModelNode(Parent, Name, member->name, member->value, Document);
+            EntityTreeModelNode *child = new EntityTreeModelNode(Parent, ValueToString((*member).name), member->name, member->value, Document);
             EnumChildren(child, member->value, Document);
             Parent->GetChildren().Add(child);
         } else {
@@ -724,7 +721,15 @@ void EntityTreeModel::GetValue( wxVariant &variant,
         variant = node->m_key;
         break;
     case 1:
-        variant = node->m_value;
+        if (node->HasContainerColumns()) {
+            EntityTreeModelNode* EncounterSpawnNode = node->Find("args:eEncounterSpawnType_t");
+            if (EncounterSpawnNode != nullptr) {
+                variant = EncounterSpawnNode->m_value;
+            }
+
+        } else {
+            variant = node->m_value;
+        }
         break;
     default:
         wxLogError( "EntityTreeModel::GetValue: wrong column %d", col );
@@ -777,6 +782,16 @@ wxDataViewItem EntityTreeModel::GetParent( const wxDataViewItem &item ) const
         return wxDataViewItem(0);
 
     return wxDataViewItem( (void*) node->GetParent() );
+}
+
+bool EntityTreeModel::HasContainerColumns(const wxDataViewItem& item) const
+{
+    // the invisible root node can have children
+    if (!item.IsOk())
+        return true;
+
+    EntityTreeModelNode* node = (EntityTreeModelNode*)item.GetID();
+    return node->HasContainerColumns();
 }
 
 bool EntityTreeModel::IsContainer( const wxDataViewItem &item ) const

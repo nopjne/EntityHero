@@ -22,5 +22,6 @@ struct MenuDescriptor {
 extern std::map<std::string, MenuDescriptor> MenuDescription;
 
 bool LoadEventDescriptor(void);
+bool LoadMenuDescriptor(void);
 
 #endif // _EVENT_DESCRIPTION_INCLUDED

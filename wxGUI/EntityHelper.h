@@ -75,11 +75,29 @@ bool IsLayerSupported(EntityTreeModelNode* EntityNode, wxString LayerName)
     return false;
 }
 
-bool SpawnTypeSupportedByGroup(EntityTreeModelNode *root, EntityTreeModelNode* SpawnGroup, EntityTreeModelNode* Encounter)
+std::vector<wxString> GetSpawnTokens(wxString EncounterName) {
+    std::vector<wxString> SpawnEncounters;
+    int EncounterCount = EncounterName.Freq(' ') + 1;
+    size_t Start = 0;
+    size_t End = 0;
+    for (int i = 0; i < EncounterCount; i += 1) {
+        End = EncounterName.find(' ', Start);
+        wxString Token = EncounterName.SubString(Start, End);
+        Start = End + 1;
+        if (Token.Matches("ENCOUNTER_SPAWN*") != false) {
+            SpawnEncounters.push_back(Token.Trim().Trim(false));
+        }
+    }
+
+    return SpawnEncounters;
+}
+
+std::vector<bool> SpawnTypeSupportedByGroup(EntityTreeModelNode *root, EntityTreeModelNode* SpawnGroup, EntityTreeModelNode* Encounter)
 {
     // Encounter name.
+    std::vector<bool> EncounterPresent;
     if ((Encounter == nullptr) || (SpawnGroup == nullptr)) {
-        return false;
+        return EncounterPresent;
     }
 
     wxString EnconterName = Encounter->m_value;
@@ -100,9 +118,14 @@ bool SpawnTypeSupportedByGroup(EntityTreeModelNode *root, EntityTreeModelNode* S
         // ToFind = wxString::Format("%s:%s:edit:spawners", EntityDefName, SpawnGroup->m_key);
         // EntityTreeModelNode* DefsArray = root->Find(ToFind);
         // Check spawners and spawn target parent.
-        return false;
+        return EncounterPresent;
     }
 
+    // Construct the encounter spawn list
+    std::vector<wxString> SpawnEncounters = GetSpawnTokens(EnconterName);
+    EncounterPresent.resize(SpawnEncounters.size());
+
+    // Search for the encounters in the array
     for (size_t i = 0; i < DefsArray->GetChildren().size(); i += 1) {
         EntityTreeModelNode* Entity = DefsArray->GetNthChild(i);
         wxString Name = Entity->FindKey("name")->m_value;
@@ -110,15 +133,21 @@ bool SpawnTypeSupportedByGroup(EntityTreeModelNode *root, EntityTreeModelNode* S
         //entity(idAI2)::entityDef(name)::edit::renderModelInfo::model -> value (arachnotron.md6)
         wxString idAiName = wxString::Format("entityDef %s", Name);
         wxString ModelValue = root->Find(wxString::Format("%s:%s:edit:renderModelInfo:model", Name, idAiName))->m_value;
-        std::vector<Holder>& Model = ValidEncounterMap[EnconterName.c_str().AsChar()];
-        for (size_t x = 0; x < Model.size(); x += 1) {
-            if (ModelValue == Model[x].ModelName) {
-                return true;
+        for (size_t Index = 0; Index < SpawnEncounters.size(); Index += 1) {
+            auto Encounter = SpawnEncounters[Index];
+            if (ValidEncounterMap.find(Encounter.c_str().AsChar()) != ValidEncounterMap.end()) {
+                std::vector<Holder>& Model = ValidEncounterMap[Encounter.c_str().AsChar()];
+                for (size_t x = 0; x < Model.size(); x += 1) {
+                    if (ModelValue == Model[x].ModelName) {
+                        EncounterPresent[Index] = true;
+                        break;
+                    }
+                }
             }
         }
     }
 
-    return false;
+    return EncounterPresent;
 }
 
 int SpawnTargetIndex(wxString String)
@@ -257,10 +286,10 @@ wxString GetModelString(EntityTreeModelNode *Root, wxString String)
 // Scan for all eEncounterSpawnType_t's that match the new value.
 void BuildEncounterToEntityMap(EntityTreeModelNode* root)
 {
- #if _DEBUG
-    // Debug builds take a while to produce this map, disable for faster iteration.
-    return;
- #endif
+ // #if _DEBUG
+ //    // Debug builds take a while to produce this map, disable for faster iteration.
+ //    return;
+ // #endif
 
     //
     auto AllNodes = root->GetChildren();
@@ -310,23 +339,28 @@ void BuildEncounterToEntityMap(EntityTreeModelNode* root)
                 //{"ENCOUNTER_SPAWN_ARACHNOTRON", {{"cathedral_ai_heavy_arachnotron_1", "md6def/characters/monsters/arachnotron/base/arachnotron.md6"}}}
                 //};
                 wxString SpawnTypeStr = SpawnType->m_value;
-                if (SpawnTypeStr.find(L' ') != SpawnTypeStr.npos) {
-                    SpawnTypeStr = SpawnType->m_value.substr(0, SpawnTypeStr.find(L' '));
-                }
+                int EncounterCount = SpawnTypeStr.Freq(' ') + 1;
+                size_t Start = 0;
+                size_t End = 0;
+                for (int EncounterIndex = 0; EncounterIndex < EncounterCount; EncounterIndex += 1) {
+                    End = SpawnTypeStr.find(L' ', Start);
+                    wxString SpawnToken = SpawnType->m_value.substr(Start, End);
+                    Start = End;
 
-                if (SpawnTypeStr == "ENCOUNTER_SPAWN_ANY") {
-                    continue;
-                }
+                    if (SpawnToken == "ENCOUNTER_SPAWN_ANY") {
+                        continue;
+                    }
 
-                wxString AI2String = GetAIDefinitionString(root, SpawnTargetStr, SpawnTypeStr);
-                wxString ModelString = GetModelString(root, AI2String);
-                if (AI2String.empty() || ModelString.empty()) {
-                    wxString Error = wxString::Format("Could not resolve %s in %s\n", SpawnTypeStr, SpawnTargetStr);
-                    OutputDebugStringA(Error.c_str().AsChar());
-                    continue;
-                }
+                    wxString AI2String = GetAIDefinitionString(root, SpawnTargetStr, SpawnToken);
+                    wxString ModelString = GetModelString(root, AI2String);
+                    if (AI2String.empty() || ModelString.empty()) {
+                        wxString Error = wxString::Format("Could not resolve %s in %s\n", SpawnToken, SpawnTargetStr);
+                        OutputDebugStringA(Error.c_str().AsChar());
+                        continue;
+                    }
 
-                ValidEncounterMap[SpawnTypeStr.c_str().AsChar()].push_back({AI2String.c_str().AsChar(), ModelString.c_str().AsChar()});
+                    ValidEncounterMap[SpawnToken.c_str().AsChar()].push_back({AI2String.c_str().AsChar(), ModelString.c_str().AsChar()});
+                }
             }
         }
     }

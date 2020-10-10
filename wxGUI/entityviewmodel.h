@@ -13,6 +13,8 @@ WX_DECLARE_HASH_MAP(unsigned, wxString, wxIntegerHash, wxIntegerEqual,
 class EntityTreeModelNode;
 WX_DEFINE_ARRAY_PTR(EntityTreeModelNode*, EntityTreeModelNodePtrArray );
 
+const char* ValueToString(rapidjson::Value& val);
+
 enum eSearchDirection
 {
     FIRST,
@@ -126,6 +128,20 @@ public:
         m_valueRef->AddMember(child->m_keyCopy, child->m_valueCopy, Document.GetAllocator());
     }
 
+    bool HasContainerColumns()
+    {
+        if (m_key != "eventCall") {
+            return false;
+        }
+
+        EntityTreeModelNode *Node = Find("args:eEncounterSpawnType_t");
+        if (Node != nullptr) {
+            return true;
+        }
+
+        return false;
+    }
+
     unsigned int GetChildCount() const
         { return m_children.GetCount(); }
 
@@ -211,6 +227,7 @@ public:
     virtual unsigned int GetChildren( const wxDataViewItem &parent,
                                       wxDataViewItemArray &array ) const wxOVERRIDE;
 
+    virtual bool HasContainerColumns(const wxDataViewItem& item) const wxOVERRIDE;
 private:
     EntityTreeModelNode*   m_root;
 };

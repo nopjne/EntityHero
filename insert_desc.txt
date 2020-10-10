@@ -1,0 +1,5 @@
+//menuText, Parent Text, Require Node Present, List of name maches.
+//Example {"maintain", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"maintain*", "*maintain*", "*maintain", "maintain"}}},
+spawn, idEncounterManager, edit:encounterComponent:entityEvents, spawn*, *spawn, *spawn*, spawn
+wait, idEncounterManager, edit:encounterComponent:entityEvents, wait*, *wait, wait, *wait*
+maintain, idEncounterManager, edit:encounterComponent:entityEvents, maintain*, *maintain*, *maintain, maintain

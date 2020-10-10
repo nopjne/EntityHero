@@ -1,5 +1,6 @@
 #include <map>
 #include <string>
+#include <wx/string.h>
 #include "EventDescription.h"
 
 std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
@@ -42,6 +43,54 @@ bool LoadEventDescriptor(void)
 
         EventDescriptor[NameA][Value] = {NameB, Index};
         Index += 1;
+    }
+
+    fclose(EventFile);
+    return true;
+}
+
+bool LoadMenuDescriptor(void)
+{
+    FILE* EventFile;
+    fopen_s(&EventFile, "insert_desc.txt", "rt");
+    if (EventFile == nullptr) {
+        fopen_s(&EventFile, "../insert_desc.txt", "rt");
+        if (EventFile == nullptr) {
+            fopen_s(&EventFile, "../../insert_desc.txt", "rt");
+            if (EventFile == nullptr) {
+                return false;
+            }
+        }
+    }
+
+    MenuDescription.clear();
+    int Index = 0;
+    char Line[4096]; //
+    char* Context;
+    while (feof(EventFile) == false) {
+        char* ElementsRead = fgets(Line, (int)sizeof(Line), EventFile);
+        if (ElementsRead == 0) {
+            return false;
+        }
+
+        if (Line[0] == '/' && Line[1] == '/') {
+            continue;
+        }
+
+        MenuDescriptor Descriptor;
+        std::string Name;
+        Name = wxString(strtok_s(Line, ",", &Context)).Trim().Trim(false);
+        Descriptor.Class = wxString(strtok_s(nullptr, ",", &Context)).Trim().Trim(false);
+        Descriptor.Requirements = wxString(strtok_s(nullptr, ",", &Context)).Trim().Trim(false);
+        char *MatchString = nullptr;
+        do {
+            MatchString = strtok_s(nullptr, ",", &Context);
+            wxString Match(MatchString);
+            Match = Match.Trim().Trim(false);
+            Descriptor.StringMatch.push_back(Match.c_str().AsChar());
+        } while (MatchString != nullptr);
+
+        MenuDescription[Name] = Descriptor;
     }
 
     fclose(EventFile);
