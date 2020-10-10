@@ -50,6 +50,7 @@
 #include <sstream>
 #include "Command.h"
 #include "Dialogs.h"
+#include "entityviewmodel.h"
 #include "EntityHelper.h"
 #include "EventDescription.h"
 
@@ -395,6 +396,10 @@ private:
     bool SetLocationNodeFromMH(EntityTreeModelNode* Node);
     bool SetRotationNodeFromMH(EntityTreeModelNode* Node);
     bool OpenFileInternal(wxString FilePath);
+    void Copy(wxCommandEvent& event);
+    void Paste(wxCommandEvent& event);
+    void InsertFromClipBoard(EntityTreeModelNode* ParentNode);
+    void CopyToClipBoard(EntityTreeModelNode* Node);
 
     wxNotebook* m_notebook;
 
@@ -614,8 +619,12 @@ bool MyApp::OnInit()
         wxMessageBox(wxT("Could not load eternalevents.txt put it into the same folder as EntityHero.exe"), wxT("Error"), wxOK);
     }
 
+    if (LoadMenuDescriptor() == false) {
+        wxMessageBox(wxT("Could not load insert_desc.txt put it into the same folder as EntityHero.exe"), wxT("Error"), wxOK);
+    }
+
     MyFrame *frame =
-        new MyFrame(NULL, "EntityHero v0.3 (by Scorp0rX0r)", 40, 40, 1000, 540);
+        new MyFrame(NULL, "EntityHero v0.4 (by Scorp0rX0r)", 40, 40, 1000, 540);
 
     frame->Show(true);
     return true;
@@ -656,6 +665,11 @@ enum
     // Edit menu
     ID_UNDO,
     ID_REDO,
+
+    //
+    ID_COPY,
+    ID_PASTE,
+
 
     // Quick find menu
     ID_QF_INTRO_CUTSCENE,
@@ -725,6 +739,9 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
 
     EVT_MENU(ID_REDO, MyFrame::Redo)
     EVT_MENU(ID_UNDO, MyFrame::Undo)
+
+    EVT_MENU(ID_COPY, MyFrame::Copy)
+    EVT_MENU(ID_PASTE, MyFrame::Paste)
 
     EVT_MENU(ID_NAVIGTE_BACKWARD, MyFrame::NavBackward)
     EVT_MENU(ID_NAVIGTE_FORWARD, MyFrame::NavForward)
@@ -842,6 +859,9 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     edit_menu->Append(ID_UNDO, "Undo");
     edit_menu->Append(ID_NAVIGTE_BACKWARD, "Navigate Previous (Ctrl+,)");
     edit_menu->Append(ID_NAVIGTE_FORWARD, "Navigate Next (Ctrl+.)");
+    edit_menu->AppendSeparator();
+    edit_menu->Append(ID_COPY, "Copy");
+    edit_menu->Append(ID_PASTE, "Paste");
 
     wxMenu* quickfind_menu = new wxMenu;
     quickfind_menu->Append(ID_QF_INTRO_CUTSCENE, "Intro cutscene (intro_game_info_logic)");
@@ -937,12 +957,14 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     SetSizerAndFit(mainSizer);
 
-    wxAcceleratorEntry entries[5];
+    wxAcceleratorEntry entries[7];
     entries[0].Set(wxACCEL_CTRL, (int)'z', ID_UNDO);
     entries[1].Set(wxACCEL_CTRL, (int)'y', ID_REDO);
     entries[2].Set(wxACCEL_CTRL, (int)'s', ID_SAVE_FILE);
     entries[3].Set(wxACCEL_CTRL, (int)',', ID_NAVIGTE_BACKWARD);
     entries[4].Set(wxACCEL_CTRL, (int)'.', ID_NAVIGTE_FORWARD);
+    entries[5].Set(wxACCEL_CTRL, (int)'c', ID_COPY);
+    entries[6].Set(wxACCEL_CTRL, (int)'v', ID_PASTE);
 
     wxAcceleratorTable accel(ARRAYSIZE(entries), entries);
     SetAcceleratorTable(accel);
@@ -1499,6 +1521,8 @@ void MyFrame::OnStartEditing(wxDataViewEvent& event)
 {
     if ((event.GetColumn() == 0) && (m_entity_view_model->IsArrayElement(&(event.GetItem())))) {
         event.Veto();
+    } else if ((event.GetColumn() == 1) && (m_entity_view_model->HasContainerColumns(event.GetItem()))) {
+        event.Veto();
     } else {
         wxString value = m_entity_view_model->GetValue(event.GetItem());
         wxLogMessage("wxEVT_DATAVIEW_ITEM_START_EDITING not vetoed. Value: %s", value);
@@ -1596,6 +1620,8 @@ enum CONTEXT_ID {
     CID_REINJECT_FILE,
     CID_MH_GET_POSITION,
     CID_MH_GET_ROTATION,
+    CID_COPY,
+    CID_PASTE,
     CID_MAX
 };
 
@@ -1757,17 +1783,28 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             SetRotationNodeFromMH(Node);
         }
         break;
+        case CID_COPY:
+        {
+            CopyToClipBoard((EntityTreeModelNode*)Item.GetID());
+        }
+        break;
+        case CID_PASTE:
+        {
+            InsertFromClipBoard((EntityTreeModelNode*)Item.GetID());
+        }
+        break;
         default:
             if (m_MenuMap.find(event.GetId()) != m_MenuMap.end()) {
                 wxString MenuString = m_MenuMap[event.GetId()];
                 EntityTreeModelNode* Node = ConstructInsertionTree(MenuString, m_Document);
                 if (Node != nullptr) {
                     EntityTreeModelNode* ItemNode = (EntityTreeModelNode*)Item.GetID();
+                    size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
                     bool Wrapped = ItemNode->IsWrapped();
                     CommandPattern Insert = make_shared<InsertSubTreeCommand>(
                         wxDataViewItem(Node),
                         wxDataViewItem(ItemNode->GetParent()),
-                        pos,
+                        Index,
                         m_entity_view_model,
                         m_Document,
                         Wrapped
@@ -1839,11 +1876,22 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     menu.Append(CID_DUPLICATE, "Duplicate");
     menu.Append(CID_DELETE, "Delete");
     ConstructInsertSubMenu(SubMenuInsert, (EntityTreeModelNode*)event.GetItem().GetID(), m_MenuMap);
-    menu.AppendSubMenu(SubMenuInsert, "Insert");
+    // Disable insert menu if there is nothing in there.
+    if (SubMenuInsert->GetMenuItemCount() == 0) {
+        menu.Append(300, "Insert");
+        menu.Enable(300, false);
+        delete SubMenuInsert;
+    } else  {
+        menu.AppendSubMenu(SubMenuInsert, "Insert");
+    }
+    
 #ifdef _DEBUG
     menu.Append(CID_EDIT_KEY_NAME, "Edit key name");
     menu.Append(CID_ADD_ITEM, "Add new node");
 #endif
+    menu.AppendSeparator();
+    menu.Append(CID_COPY, "Copy");
+    menu.Append(CID_PASTE, "Paste");
 
     if (title == "spawnPosition") {
         menu.Append(CID_MH_GET_POSITION, "Get position from MH");
@@ -2212,7 +2260,7 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
         } else if (EntitiesCount > 1) {
             // Multiple entities
             // Set filter to *.entities - do not load and messagebox explaining.
-            wxMessageBox(_("There are multiple entities file in the resources archive please select one from the resource view."), _("Multiple entities"), wxICON_QUESTION | wxOK, this);
+            wxMessageBox(_("There are multiple entities files in the resources archive please select one from the resource view."), _("Multiple entities"), wxICON_QUESTION | wxOK, this);
             m_ResourceCtrl->SetHelpText(".entities");
             m_file_view_model->SetFilter(".entities");
             m_ctrl[Page_ResourcesView]->Expand(wxDataViewItem(m_file_view_model->GetRoot()));
@@ -2240,7 +2288,12 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
             wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu", (long long)m_Document.GetErrorOffset());
             wxMessageBox(error, _("Error"), wxOK | wxICON_ERROR, this);
             Error = 1;
-
+#if 0
+            FILE *FilePtr;
+            fopen_s(&FilePtr, "C:\\Programming\\EntityHero\\wxGUI\\OutputTest.txt", "wb");
+            fwrite(DecompressedData, 1, DecompressedSize, FilePtr);
+            fclose(FilePtr);
+#endif
         } else {
             m_CurrentlyLoadedFileCompressed = true;
         }
@@ -2600,17 +2653,17 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
     EntityTreeModelNode *LayerNode = GetLayerNode(EncounterNode);
 
     // Check if the SpawnGroup supports the new enemy type.
-    if (SpawnTypeSupportedByGroup(Root, EntityDefNode, EncounterNode) != false) {
+    std::vector<bool> EncounterPresent = SpawnTypeSupportedByGroup(Root, EntityDefNode, EncounterNode);
+    bool Found = true;
+    for (auto Encounter : EncounterPresent) {
+        Found &= Encounter;
+    }
+
+    if (Found != false) {
         // Check whether the layers are correct.
         if (IsLayerSupported(EntityDefNode, LayerNode->m_value) != false) {
             return;
         }
-    }
-
-    wxString MessageString = wxString::Format("The encounter type(%s) is not supported by spawnGroup(%s) do you want to auto resolve?", EncounterNode->m_value, EntityDefNode->m_key);
-    int result = wxMessageBox(MessageString, "Spawngroup not compatible", wxICON_EXCLAMATION | wxYES_NO);
-    if (result == wxNO) {
-        return;
     }
 
     // Update targets, this could be adding an existing idAI2 class to the targets.
@@ -2619,60 +2672,58 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
     //     num = 1;
     //     item[0] = "cathedral_ai_heavy_arachnotron_1";
     // }
-    EntityTreeModelNode *AI2Node = GetExistingAI2Node(Root, EncounterNode->m_value, LayerNode->m_value);
+    size_t EncounterPresentIndex = 0;
     GroupedCommand Command = make_shared<_GroupedCommand>();
-    if (AI2Node == nullptr) {
-        // Ask if user wants to duplicate.
-        wxString MessageString = wxString::Format("The idAI2(%s) is not part of layer(%s) do you want to duplicate (%s)?", EncounterNode->m_value, LayerNode->m_value, EntityDefNode->m_key, EncounterNode->m_value);
-        int result = wxMessageBox(MessageString, "idAI2 not in layer", wxICON_EXCLAMATION | wxYES_NO);
+    std::vector<wxString> EncounterSpawns = GetSpawnTokens(EncounterNode->m_value);
+    for (auto EncounterName : EncounterSpawns) {
+        if (EncounterPresent[EncounterPresentIndex] != false) {
+            EncounterPresentIndex += 1;
+            continue;
+        }
+
+        EncounterPresentIndex += 1;
+
+        wxString MessageString = wxString::Format("The encounter type(%s) is not supported by spawnGroup(%s) do you want to auto resolve?", EncounterName, EntityDefNode->m_key);
+        int result = wxMessageBox(MessageString, "Spawngroup not compatible", wxICON_EXCLAMATION | wxYES_NO);
         if (result == wxNO) {
             return;
         }
 
-        AI2Node = GetExistingAI2Node(Root, EncounterNode->m_value, "");
-
+        EntityTreeModelNode *AI2Node = GetExistingAI2Node(Root, EncounterName, LayerNode->m_value);
         if (AI2Node == nullptr) {
-            wxString MessageString = wxString::Format("Could not auto resolve..", EncounterNode->m_value, EntityDefNode->m_key);
-            wxMessageBox(MessageString, "Error", wxICON_EXCLAMATION | wxOK);
-            return;
-        }
-
-        CommandPattern Duplicate = make_shared<DuplicateSubTreeCommand>(wxDataViewItem(AI2Node), m_entity_view_model, m_Document);
-        Command->PushCommand(Duplicate);
-        Duplicate->Execute();
-        AI2Node = ((DuplicateSubTreeCommand*)(Duplicate.get()))->m_NewItem;
-
-        // Overwrite the layer value.
-        EntityTreeModelNode *Layer = AI2Node->Find("layers")->GetChildren()[0];
-        CommandPattern ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(Layer), m_entity_view_model, wxT(""), 1);
-        ((ChangeItemCommand*)ChangeCmd.get())->SetNewValue(LayerNode->m_value);
-        ChangeCmd->Execute();
-        Command->PushCommand(ChangeCmd);
-    }
-
-    assert(AI2Node != nullptr);
-
-    // Add new array entry into the spawn group.
-    {
-        EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:entityDefs");
-        if (GroupArrayNode != nullptr) {
-            rapidjson::Value ValKey("name", m_Document.GetAllocator());
-            wxString EntityName = AI2Node->m_key;
-            rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
-            EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
-            EnumChildren(ParentArrayItemNode, ValValue, m_Document);
-            CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
-            Command->PushCommand(Insert);
-            Insert->Execute();
-
-        } else {
-            // When no entitydefs are present check the parent.
-            GroupArrayNode = nullptr;
-            EntityTreeModelNode* SpawnGroupParentNode = EntityDefNode->Find("edit:spawnGroupParent");
-            if (SpawnGroupParentNode != nullptr) {
-                GroupArrayNode = Root->Find(wxString::Format("%s:entityDef %s:edit:entityDefs", SpawnGroupParentNode->m_value, SpawnGroupParentNode->m_value));
+            // Ask if user wants to duplicate.
+            wxString MessageString = wxString::Format("The idAI2(%s) is not part of layer(%s) do you want to duplicate (%s)?", EncounterName, LayerNode->m_value, EntityDefNode->m_key, EncounterName);
+            int result = wxMessageBox(MessageString, "idAI2 not in layer", wxICON_EXCLAMATION | wxYES_NO);
+            if (result == wxNO) {
+                return;
             }
 
+            AI2Node = GetExistingAI2Node(Root, EncounterName, "");
+
+            if (AI2Node == nullptr) {
+                wxString MessageString = wxString::Format("Could not auto resolve..", EncounterName, EntityDefNode->m_key);
+                wxMessageBox(MessageString, "Error", wxICON_EXCLAMATION | wxOK);
+                return;
+            }
+
+            CommandPattern Duplicate = make_shared<DuplicateSubTreeCommand>(wxDataViewItem(AI2Node), m_entity_view_model, m_Document);
+            Command->PushCommand(Duplicate);
+            Duplicate->Execute();
+            AI2Node = ((DuplicateSubTreeCommand*)(Duplicate.get()))->m_NewItem;
+
+            // Overwrite the layer value.
+            EntityTreeModelNode *Layer = AI2Node->Find("layers")->GetChildren()[0];
+            CommandPattern ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(Layer), m_entity_view_model, wxT(""), 1);
+            ((ChangeItemCommand*)ChangeCmd.get())->SetNewValue(LayerNode->m_value);
+            ChangeCmd->Execute();
+            Command->PushCommand(ChangeCmd);
+        }
+
+        assert(AI2Node != nullptr);
+
+        // Add new array entry into the spawn group.
+        {
+            EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:entityDefs");
             if (GroupArrayNode != nullptr) {
                 rapidjson::Value ValKey("name", m_Document.GetAllocator());
                 wxString EntityName = AI2Node->m_key;
@@ -2682,21 +2733,40 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
                 CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
                 Command->PushCommand(Insert);
                 Insert->Execute();
+
+            } else {
+                // When no entitydefs are present check the parent.
+                GroupArrayNode = nullptr;
+                EntityTreeModelNode* SpawnGroupParentNode = EntityDefNode->Find("edit:spawnGroupParent");
+                if (SpawnGroupParentNode != nullptr) {
+                    GroupArrayNode = Root->Find(wxString::Format("%s:entityDef %s:edit:entityDefs", SpawnGroupParentNode->m_value, SpawnGroupParentNode->m_value));
+                }
+
+                if (GroupArrayNode != nullptr) {
+                    rapidjson::Value ValKey("name", m_Document.GetAllocator());
+                    wxString EntityName = AI2Node->m_key;
+                    rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+                    EntityTreeModelNode* ParentArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
+                    EnumChildren(ParentArrayItemNode, ValValue, m_Document);
+                    CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(ParentArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document, true);
+                    Command->PushCommand(Insert);
+                    Insert->Execute();
+                }
             }
         }
-    }
 
-    {
-        // Add new array entry into the targets array.
-        EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:targets");
-        if (GroupArrayNode != nullptr) {
-            rapidjson::Value ValKey("name", m_Document.GetAllocator());
-            wxString EntityName = AI2Node->m_key;
-            rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
-            EntityTreeModelNode* GroupArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
-            CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(GroupArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document);
-            Command->PushCommand(Insert);
-            Insert->Execute();
+        {
+            // Add new array entry into the targets array.
+            EntityTreeModelNode* GroupArrayNode = EntityDefNode->Find("edit:targets");
+            if (GroupArrayNode != nullptr) {
+                rapidjson::Value ValKey("name", m_Document.GetAllocator());
+                wxString EntityName = AI2Node->m_key;
+                rapidjson::Value ValValue(EntityName.c_str().AsChar(), m_Document.GetAllocator());
+                EntityTreeModelNode* GroupArrayItemNode = new EntityTreeModelNode(GroupArrayNode, "name", EntityName, ValKey, ValValue, m_Document);
+                CommandPattern Insert = make_shared<InsertSubTreeCommand>(wxDataViewItem(GroupArrayItemNode), wxDataViewItem(GroupArrayNode), GroupArrayNode->GetChildCount(), m_entity_view_model, m_Document);
+                Command->PushCommand(Insert);
+                Insert->Execute();
+            }
         }
     }
 
@@ -2870,4 +2940,92 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
     }
+}
+
+void MyFrame::Copy(wxCommandEvent& event)
+{
+    CopyToClipBoard((EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID());
+}
+
+void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
+{
+    EntityTreeModelNode* Parent = Node->GetParent();
+    size_t Index = Parent->GetChildIndex(Node);
+    Document TempDoc;
+    TempDoc.SetObject();
+    TempDoc.InsertMember(Parent->m_valueRef->MemberBegin()[Index].name, Parent->m_valueRef->MemberBegin()[Index].value, m_Document.GetAllocator(), 0);
+    byte* Data = nullptr;
+    size_t DataSize = 0;
+    StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer,
+        rapidjson::UTF8<char>,
+        rapidjson::UTF8<char>,
+        rapidjson::CrtAllocator,
+        rapidjson::kWriteValidateEncodingFlag |
+        rapidjson::kWriteNanAndInfFlag> writer(buffer);
+    writer.SetIndent('\t', 1);
+    TempDoc.Accept(writer, 0);
+
+    // Copy to clipboard.
+    OpenClipboard(GetHWND());
+    EmptyClipboard();
+    HGLOBAL Memory = GlobalAlloc(GMEM_MOVEABLE, buffer.GetSize());
+    HGLOBAL StringHandle = GlobalLock(Memory);
+    memcpy((char*)StringHandle, buffer.GetString(), buffer.GetSize());
+    GlobalUnlock(StringHandle);
+    SetClipboardData(CF_TEXT, StringHandle);
+    CloseClipboard();
+}
+
+void MyFrame::Paste(wxCommandEvent& event)
+{
+    InsertFromClipBoard((EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID());
+}
+
+void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
+{
+    // Get from clipboard.
+    OpenClipboard(GetHWND());
+    char* Data = (char*)GetClipboardData(CF_TEXT);
+    CloseClipboard();
+    if (Data == nullptr) {
+        return;
+    }
+
+    // Normalize line ending.
+    wxString LineEndNormalization(Data);
+    LineEndNormalization.Replace("\r\n", "\n");
+    // Parse data.
+    MemoryStream memstream(LineEndNormalization.c_str().AsChar(), LineEndNormalization.Len());
+    Document PasteData;
+    PasteData.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
+    if (PasteData.HasParseError() != false) {
+        wxString error = wxString::Format("Error parsing the clipboard. (Syntax error at offset: %llu)", (long long)PasteData.GetErrorOffset());
+        wxMessageBox(error, _("Error"), wxOK | wxICON_ERROR, this);
+        return;
+    }
+
+    // Insert node.
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    for (size_t i = 0; i < PasteData.MemberCount(); i += 1) {
+        auto Member = PasteData.MemberBegin() + i;
+        EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "", Member->name, Member->value, m_Document);
+        EnumChildren(Node, Member->value, m_Document);
+        EntityTreeModelNode* ItemNode = ParentNode;
+        size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
+        bool Wrapped = ItemNode->IsWrapped();
+        CommandPattern Insert = make_shared<InsertSubTreeCommand>(
+            wxDataViewItem(Node),
+            wxDataViewItem(ItemNode->GetParent()),
+            (Index + i),
+            m_entity_view_model,
+            m_Document,
+            Wrapped
+            );
+
+        Group->PushCommand(Insert);
+    }
+
+    Group->Execute();
+    PushCommand(Group);
 }

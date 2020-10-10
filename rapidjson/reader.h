@@ -2063,11 +2063,13 @@ private:
                           ParseNumber<parseFlags>(is, handler);
                       } else {
                           ParseValueString<parseFlags>(is, handler, true);
+                          RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                           SkipWhitespaceAndComments<parseFlags>(is);
+                          RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                           ParseValue<parseFlags>(is, handler);
+                          RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                       }
                       break;
-
         }
     }
 
