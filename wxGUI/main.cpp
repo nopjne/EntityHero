@@ -16,7 +16,7 @@ using namespace std;
 int gArrayCount = 0;
 int main(void)
 {
-    ifstream InputStream("../output_edited.txt");
+    ifstream InputStream("../chrispy.txt");
     if (InputStream.good() == false) {
         return 0;
     }
@@ -28,7 +28,7 @@ int main(void)
         printf("bad input file\n");
     }
 
-    ofstream OfStream("../reloaded.txt", std::ofstream::binary);
+    ofstream OfStream("../chrispy_out.txt", std::ofstream::binary);
     if (OfStream.good() == false) {
         return 0;
     }

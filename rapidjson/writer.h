@@ -524,6 +524,10 @@ protected:
             }
         }
 
+        if (stringBuffer[0] == 0) {
+            specialKeyword = true;
+        }
+
         if (Key == false) {
             PutUnsafe(*os_, '\"');
             PostPretty();

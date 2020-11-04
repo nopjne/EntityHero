@@ -216,6 +216,10 @@ public:
 
     virtual void GetValue( wxVariant &variant,
                            const wxDataViewItem &item, unsigned int col ) const wxOVERRIDE;
+
+    virtual void GetJsonValue( wxVariant& variant,
+                               const wxDataViewItem& item, unsigned int col) const;
+
     virtual bool SetValue( const wxVariant &variant,
                            const wxDataViewItem &item, unsigned int col ) wxOVERRIDE;
 

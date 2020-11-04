@@ -123,7 +123,7 @@ public:
 #endif
 
     bool StartObject(int Flags) {
-        PrettyPrefix(kObjectType);
+        PrettyPrefix(kObjectType, ((Flags & 0x20000) != 0));
         new (Base::level_stack_.template Push<typename Base::Level>()) typename Base::Level(false);
         
         bool result;

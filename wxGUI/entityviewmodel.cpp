@@ -573,6 +573,15 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
     }
 
     if (Node->IsContainer() != false) {
+        if (strcmp(ValueToString(*(Node->m_keyRef)), "entity") == 0) {
+            size_t Index = 0;
+            wxString ToFind = "entityDef ";
+            EntityTreeModelNode *Found = Node->FindByName(0, 1, ToFind, 0, Index, false, true);
+            if (Found != nullptr) {
+                Node->m_key = Found->m_key.substr(10);
+            }
+        }
+
         auto Member = Node->GetChildren().begin();
         for (auto JsonMember = Node->m_valueRef->MemberBegin(); JsonMember != Node->m_valueRef->MemberEnd(); JsonMember++) {
             if (strcmp(ValueToString(JsonMember->name), "num") == 0) {
@@ -589,7 +598,6 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
                     auto ArrayObject = JsonMember->value.GetObject();
                     for (auto ArrayMember = ArrayObject.MemberBegin(); ArrayMember != ArrayObject.MemberEnd(); ArrayMember++) {
                         RebuildReferences(*Member, ArrayMember->name, ArrayMember->value, MaxDepth, CurrentDepth + 1);
-                        //(**Member).m_key = itemstr;
                         Member++;
                     }
 
@@ -736,6 +744,33 @@ void EntityTreeModel::GetValue( wxVariant &variant,
     }
 }
 
+void EntityTreeModel::GetJsonValue( wxVariant &variant,
+                                 const wxDataViewItem &item, unsigned int col ) const
+{
+    wxASSERT(item.IsOk());
+
+    EntityTreeModelNode *node = (EntityTreeModelNode*) item.GetID();
+    switch (col)
+    {
+    case 0:
+        variant = wxString(ValueToString(*(node->m_keyRef)));
+        break;
+    case 1:
+        if (node->HasContainerColumns()) {
+            EntityTreeModelNode* EncounterSpawnNode = node->Find("args:eEncounterSpawnType_t");
+            if (EncounterSpawnNode != nullptr) {
+                variant = wxString(ValueToString(*(EncounterSpawnNode->m_valueRef)));
+            }
+
+        } else {
+            variant = wxString(ValueToString(*(node->m_valueRef)));
+        }
+        break;
+    default:
+        wxLogError( "EntityTreeModel::GetValue: wrong column %d", col );
+    }
+}
+
 bool EntityTreeModel::SetValue( const wxVariant &variant,
                                  const wxDataViewItem &item, unsigned int col )
 {
@@ -746,13 +781,22 @@ bool EntityTreeModel::SetValue( const wxVariant &variant,
     switch (col)
     {
         case 0:
+        {
             node->m_key = variant.GetString();
             UpperFlags = node->m_keyRef->GetFlags() & 0xE000;
             node->m_keyRef->SetString(node->m_key.c_str().AsChar(), node->m_key.Len());
             node->m_keyRef->SetFlags(true, UpperFlags);
             node->m_keyCopy.SetString(node->m_key.c_str().AsChar(), node->m_key.Len());
             node->m_keyCopy.SetFlags(true, UpperFlags);
+
+            EntityTreeModelNode *ParentNode = node->GetParent();
+            if (ParentNode != nullptr) {
+                RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+                RebuildReferences(node, *(node->m_keyRef), *(node->m_valueRef), 0);
+            }
+
             return true;
+        }
         case 1:
             assert(node->IsContainer() == false);
             node->m_value = variant.GetString();

@@ -82,6 +82,10 @@ std::vector<wxString> GetSpawnTokens(wxString EncounterName) {
     size_t End = 0;
     for (int i = 0; i < EncounterCount; i += 1) {
         End = EncounterName.find(' ', Start);
+        if (End == wxString::npos) {
+            End = EncounterName.Len();
+        }
+
         wxString Token = EncounterName.SubString(Start, End);
         Start = End + 1;
         if (Token.Matches("ENCOUNTER_SPAWN*") != false) {
@@ -184,17 +188,17 @@ wxString GetAIDefinitionString(EntityTreeModelNode* Root, wxString String, wxStr
     if (Entity == nullptr) {
         FindStr = wxString::Format("%s:entityDef %s:edit:entityDefs", String, String);
         Entity = Root->Find(FindStr);
+        FindStr = wxString::Format("%s:entityDef %s:edit:targetSpawnParent", String, String);
+        Entity = Root->Find(FindStr);
+        if (Entity != nullptr) {
+            return GetAIDefinitionString(Root, Entity->m_value, Name);
+        }
+
         if (Entity == nullptr) {
             FindStr = wxString::Format("%s:entityDef %s:edit:spawners", String, String);
             Entity = Root->Find(FindStr);
             if (Entity == nullptr) {
-                FindStr = wxString::Format("%s:entityDef %s:edit:targetSpawnParent", String, String);
-                Entity = Root->Find(FindStr);
-                if (Entity == nullptr) {
-                    return "";
-                }
-
-                return GetAIDefinitionString(Root, Entity->m_value, Name);
+                return "";
             }
 
             EntityTreeModelNodePtrArray SpawnTargets = Entity->GetChildren();
@@ -204,6 +208,14 @@ wxString GetAIDefinitionString(EntityTreeModelNode* Root, wxString String, wxStr
                     return AI2NodeStr;
                 }
             }
+
+            FindStr = wxString::Format("%s:entityDef %s:edit:targetSpawnParent", String, String);
+            Entity = Root->Find(FindStr);
+            if (Entity == nullptr) {
+                return "";
+            }
+
+            return GetAIDefinitionString(Root, Entity->m_value, Name);
         }
     }
 
@@ -284,20 +296,22 @@ wxString GetModelString(EntityTreeModelNode *Root, wxString String)
 }
 
 // Scan for all eEncounterSpawnType_t's that match the new value.
-void BuildEncounterToEntityMap(EntityTreeModelNode* root)
+void BuildEncounterToEntityMap(EntityTreeModelNode* root, bool *Busy, size_t *Index, size_t *MaxCount)
 {
- // #if _DEBUG
- //    // Debug builds take a while to produce this map, disable for faster iteration.
- //    return;
- // #endif
-
     //
+    ValidEncounterMap.clear();
     auto AllNodes = root->GetChildren();
-
-    //"idEncounterManager:edit:encounterComponent:entityEvents[]:events[]:eventCall:args[]:eEncounterSpawnType_t"
-    //"idEncounterManager:edit:encounterComponent:entityEvents[]:events[]:eventCall:eventDef"
-
+    *MaxCount = AllNodes.size();
+    *Index = 0;
     for (auto Node : AllNodes) {
+        // Check if user cancelled this operation.
+        if (*Index == *MaxCount) {
+            *Busy = false;
+            return;
+        }
+
+        *Index += 1;
+
         // Look for encounter nodes then read through all possible spawn descriptions.
         EntityTreeModelNode *ClassDescription = Node->Find(wxString::Format("entityDef %s:class", Node->m_key));
         if ((ClassDescription == nullptr) || (ClassDescription->m_value != "idEncounterManager")) {
@@ -364,6 +378,8 @@ void BuildEncounterToEntityMap(EntityTreeModelNode* root)
             }
         }
     }
+
+    *Busy = false;
 }
 
 EntityTreeModelNode* GetExistingAI2Node(EntityTreeModelNode* root, wxString EncounterSpawn, wxString Layer)
@@ -378,6 +394,10 @@ EntityTreeModelNode* GetExistingAI2Node(EntityTreeModelNode* root, wxString Enco
         EntityTreeModelNode *EntityNode = root->Find(Group.EntityName);
         if (Layer.empty() != false) {
             return EntityNode;
+        }
+
+        if (EntityNode == nullptr) {
+            continue;
         }
 
         auto LayerArray = EntityNode->Find("layers")->GetChildren();

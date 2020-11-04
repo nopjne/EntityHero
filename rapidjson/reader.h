@@ -800,6 +800,14 @@ private:
                 return;
             }
 
+            // Handle unnamed scopes.
+            bool UnnamedScope = false;
+            if (inputCharpeek == '{') {
+                UnnamedScope = true;
+                if (RAPIDJSON_UNLIKELY(!handler.StartObject()))
+                    RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
+            }
+
             ParseValue<parseFlags>(is, handler);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
@@ -807,6 +815,12 @@ private:
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
             ++memberCount;
+
+            if (UnnamedScope != false) {
+                SkipWhitespaceNewLineAndComments<parseFlags>(is);
+                RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+                continue;
+            }
 
             char inputChar = is.Peek();
             switch (inputChar) {
