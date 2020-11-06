@@ -465,13 +465,15 @@ bool EntityTreeModel::IsArrayElement(wxDataViewItem* Item)
 
     if ((Parent->m_valueRef->GetFlags() & 0x4000) != 0) {
         // Check whether Parent is a direct ancestor, in JSON too.
-        for (auto Member = Parent->m_valueRef->MemberBegin(); Member != Parent->m_valueRef->MemberEnd(); Member++) {
-            if (&(Member->name) == Node->m_keyRef) {
-                return true;
-            }
-        }
-
-        return false;
+        // for (auto Member = Parent->m_valueRef->MemberBegin(); Member != Parent->m_valueRef->MemberEnd(); Member++) {
+        //     if (&(Member->name) == Node->m_keyRef) {
+        //         return true;
+        //     }
+        // }
+        // 
+        // return false;
+        //if (Node->m_keyRef)
+        return true;
     }
 
     return false;
@@ -533,7 +535,7 @@ EntityTreeModelNode* EntityTreeModel::Duplicate(wxDataViewItem* Item, rapidjson:
     }
 
     EnumChildren(NewNode, valueCopy, Document);
-    Parent->Insert(NewNode, ChildIndex + 1, Document);
+    Parent->Insert(NewNode, ChildIndex + 1, Document, INSERT_TYPE_AUTO);
     ItemAdded(GetParent(*Item), wxDataViewItem(NewNode));
     RebuildReferences(node->GetParent(), *(node->GetParent()->m_keyRef), *(node->GetParent()->m_valueRef), 1);
     RebuildReferences(NewNode, *(NewNode->m_keyRef), *(NewNode->m_valueRef), 0);
@@ -568,7 +570,7 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
 
     size_t ArrayItemCount = 0;
     size_t ArrayItem = 0;
-    if (MaxDepth != 0 && MaxDepth == CurrentDepth) {
+    if ((MaxDepth != 0) && (MaxDepth == CurrentDepth)) {
         return;
     }
 
@@ -669,7 +671,7 @@ void EntityTreeModel::Delete( const wxDataViewItem &item )
     ItemDeleted( parent, item );
 }
 
-int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, bool AsObject)
+int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, INSERT_TYPE InsertType)
 {
     EntityTreeModelNode* Node = (EntityTreeModelNode*)Item->GetID();
     if (!Node)      // happens if item.IsOk()==false
@@ -683,10 +685,11 @@ int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataView
 
     // If inserting an object, the object also needs an additional item[x] object before it can be inserted.
 
-    ParentNode->Insert(Node, Index, Document, AsObject);
+    ParentNode->Insert(Node, Index, Document, InsertType);
     ItemAdded(*ParentItem, wxDataViewItem(Node));
     RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
     RebuildReferences(Node, *(Node->m_keyRef), *(Node->m_valueRef), 0);
+
     return 1;
 }
 

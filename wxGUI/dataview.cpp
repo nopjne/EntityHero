@@ -103,7 +103,7 @@ public:
             m_ParentItem = m_Model->GetParent(m_Item);
             m_Position = m_NewItem->GetParent()->GetChildIndex(m_NewItem);
         } else {
-            m_Model->Insert(&m_ParentItem, m_Position, &(wxDataViewItem(m_NewItem)), m_JsonDocument);
+            m_Model->Insert(&m_ParentItem, m_Position, &(wxDataViewItem(m_NewItem)), m_JsonDocument, INSERT_TYPE_AUTO);
         }
     }
 
@@ -149,7 +149,7 @@ public:
     }
 
     void Revert() {
-        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_WrappedNode);
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_WrappedNode ? INSERT_TYPE_WRAP : INSERT_TYPE_NO_WRAP);
         m_Deleted = false;
     }
 };
@@ -184,7 +184,7 @@ public:
     }
 
     void Execute() {
-        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject);
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject ? INSERT_TYPE_WRAP : INSERT_TYPE_NO_WRAP);
         m_Deleted = false;
     }
 
@@ -1551,7 +1551,10 @@ void MyFrame::OnStartEditing(wxDataViewEvent& event)
         event.Veto();
     }
 
-    if ((event.GetColumn() == 0) && (m_entity_view_model->IsArrayElement(&(event.GetItem())))) {
+    // if ((event.GetColumn() == 0) && (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false)) {
+    //     event.Veto();
+    // } else
+    if ((event.GetColumn() == 0) && (event.GetItem() == m_entity_view_model->GetRoot())) {
         event.Veto();
     } else if ((event.GetColumn() == 1) && (m_entity_view_model->HasContainerColumns(event.GetItem()))) {
         event.Veto();
@@ -1941,7 +1944,7 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
         }
     }
 
-    if (m_entity_view_model->IsContainer(event.GetItem()) == false) {
+    if ((m_entity_view_model->IsContainer(event.GetItem()) == false)) {
         if (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false) {
             menu.Enable(CID_DUPLICATE, false);
         }
@@ -3045,6 +3048,10 @@ void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 {
     EntityTreeModelNode* Parent = Node->GetParent();
     size_t Index = Parent->GetChildIndex(Node);
+    if (Parent->IsArray() != false) {
+        Index += 1;
+    }
+
     Document TempDoc;
     TempDoc.SetObject();
     TempDoc.InsertMember(Parent->m_valueRef->MemberBegin()[Index].name, Parent->m_valueRef->MemberBegin()[Index].value, m_Document.GetAllocator(), 0);
@@ -3103,11 +3110,22 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
     GroupedCommand Group = make_shared<_GroupedCommand>();
     for (size_t i = 0; i < PasteData.MemberCount(); i += 1) {
         auto Member = PasteData.MemberBegin() + i;
-        EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "", Member->name, Member->value, m_Document);
+        EntityTreeModelNode* Node = nullptr;
+        if (Member->value.IsObject()) {
+            Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(Member->name)), Member->name, Member->value, m_Document);
+
+        } else {
+            Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(Member->name)), wxString(ValueToString(Member->value)), Member->name, Member->value, m_Document);
+        }
+
         EnumChildren(Node, Member->value, m_Document);
         EntityTreeModelNode* ItemNode = ParentNode;
         size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
         bool Wrapped = ItemNode->IsWrapped();
+        if ((Wrapped != false) && (Node->m_key.Matches("item[*]") != false)) {
+            Wrapped = false;
+        }
+
         CommandPattern Insert = make_shared<InsertSubTreeCommand>(
             wxDataViewItem(Node),
             wxDataViewItem(ItemNode->GetParent()),

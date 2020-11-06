@@ -68,6 +68,7 @@ enum WriteFlag {
     kWriteNoFlags = 0,              //!< No flags are set.
     kWriteValidateEncodingFlag = 1, //!< Validate encoding of JSON strings.
     kWriteNanAndInfFlag = 2,        //!< Allow writing of Infinity, -Infinity and NaN.
+    kWriteKeepNumForNullArray = 4,
     kWriteDefaultFlags = RAPIDJSON_WRITE_DEFAULT_FLAGS  //!< Default write flags. Can be customized by defining RAPIDJSON_WRITE_DEFAULT_FLAGS
 };
 
@@ -284,6 +285,11 @@ public:
      */
     void Flush() {
         os_->Flush();
+    }
+
+
+    bool KeepNumForEmptyArray() {
+        return ((writeFlags & kWriteKeepNumForNullArray) != 0);
     }
 
 protected:

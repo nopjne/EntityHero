@@ -38,7 +38,8 @@ int main(void)
         rapidjson::UTF8<char>,
         rapidjson::CrtAllocator,
         rapidjson::kWriteValidateEncodingFlag |
-        rapidjson::kWriteNanAndInfFlag> writer(osw);
+        rapidjson::kWriteNanAndInfFlag |
+        rapidjson::kWriteKeepNumForNullArray> writer(osw);
     writer.SetIndent('\t', 1);
     //rapidjson::OStreamWrapper OutStream(OfStream);
     document.Accept(writer, 0);

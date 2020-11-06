@@ -840,6 +840,7 @@ private:
                 RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                 break;
             case '}':
+            case ';':
                 is.Take();
                 if (RAPIDJSON_UNLIKELY(!handler.EndObject(memberCount)))
                     RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
@@ -2080,6 +2081,12 @@ private:
                           RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                           SkipWhitespaceAndComments<parseFlags>(is);
                           RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+                          if (is.Peek() == '=') {
+                              is.Take();
+                              SkipWhitespaceAndComments<parseFlags>(is);
+                              RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+                          }
+
                           ParseValue<parseFlags>(is, handler);
                           RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                       }
