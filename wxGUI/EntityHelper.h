@@ -411,6 +411,7 @@ EntityTreeModelNode* GetExistingAI2Node(EntityTreeModelNode* root, wxString Enco
     return nullptr;
 }
 
+void ValidateTree(EntityTreeModelNode* Node, rapidjson::Value& key, rapidjson::Value& val, size_t CurrentDepth = 0);
 void EnumChildren(EntityTreeModelNode* Parent, rapidjson::Value& val, rapidjson::Document& Document);
 EntityTreeModelNode* RotationMatrixFromAngle(rapidjson::Document &Document, float Yaw, float Pitch, float Roll)
 {

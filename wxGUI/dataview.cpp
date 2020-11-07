@@ -998,6 +998,42 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     m_MHStatusTimer.SetOwner(this, ID_CHECK_MH_STATUS);
     m_MHStatusTimer.Start(5000);
+
+
+//    std::string TestClip = \
+//R"(item[1] = {
+//	eventCall = {
+//		eventDef = "spawnSingleAI";
+//		args = {
+//			num = 3;
+//			item[0] = {
+//				eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ZOMBIE_TIER_1";
+//			}
+//			item[1] = {
+//				entity = "barge_target_spawn_intro_2";
+//			}
+//			item[2] = {
+//				string = "priest_room_zombies";
+//			}
+//		}
+//	}
+//})";
+//
+//    OpenClipboard(GetHWND());
+//    EmptyClipboard();
+//    HGLOBAL Memory = GlobalAlloc(GMEM_MOVEABLE, TestClip.size());
+//    HGLOBAL StringHandle = GlobalLock(Memory);
+//    memcpy((char*)StringHandle, TestClip.c_str(), TestClip.size());
+//    GlobalUnlock(StringHandle);
+//    SetClipboardData(CF_TEXT, StringHandle);
+//    CloseClipboard();
+
+    EntityTreeModelNode* ParentNode = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    ParentNode = ParentNode->Find("barge_encounter_manager_priest_room_no_gk:entityDef barge_encounter_manager_priest_room_no_gk:edit:encounterComponent:entityEvents:events");
+    size_t Index = 0;
+    wxString eventCallStr("eventCall");
+    ParentNode = ParentNode->FindByName(0, 0, eventCallStr, 1, Index, true, true);
+    InsertFromClipBoard(ParentNode);
 }
 
 MyFrame::~MyFrame()
@@ -1684,6 +1720,7 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
         if (Select.IsOk() != false) {
             m_ctrl[0]->SetCurrentItem(Select);
             m_ctrl[0]->EnsureVisible(Select);
+            m_LastNavigation.push_back(Select);
 
         } else {
             wxMessageBox(wxT("Could not resolve:") + str, wxT("Unresolved"), wxICON_INFORMATION | wxOK);
@@ -1975,6 +2012,7 @@ void MyFrame::QuickFind(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -2028,6 +2066,7 @@ void MyFrame::OnFilterSearch(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -2581,6 +2620,7 @@ void MyFrame::SearchBackward(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -2606,6 +2646,7 @@ void MyFrame::SearchForward(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -3036,6 +3077,7 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -3111,31 +3153,43 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
     for (size_t i = 0; i < PasteData.MemberCount(); i += 1) {
         auto Member = PasteData.MemberBegin() + i;
         EntityTreeModelNode* Node = nullptr;
-        if (Member->value.IsObject()) {
-            Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(Member->name)), Member->name, Member->value, m_Document);
-
-        } else {
-            Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(Member->name)), wxString(ValueToString(Member->value)), Member->name, Member->value, m_Document);
+        size_t SubMemberCount = 1;
+        bool SkipParent = false;
+        if ((Member->value.IsObject() != false) && (wxString(ValueToString(Member->name)).Matches("item[*]") != false)) {
+            SubMemberCount = Member->value.MemberCount();
+            SkipParent = true;
         }
 
-        EnumChildren(Node, Member->value, m_Document);
-        EntityTreeModelNode* ItemNode = ParentNode;
-        size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
-        bool Wrapped = ItemNode->IsWrapped();
-        if ((Wrapped != false) && (Node->m_key.Matches("item[*]") != false)) {
-            Wrapped = false;
+        auto SubMember = Member;
+        for (size_t SubIndex = 0; SubIndex < SubMemberCount; SubIndex += 1) {
+            if (SkipParent != false) {
+                SubMember = Member->value.MemberBegin() + SubIndex;
+            }
+
+            if (SubMember->value.IsObject() != false) {
+                Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(SubMember->name)), SubMember->name, SubMember->value, m_Document);
+
+            } else {
+                Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(SubMember->name)), wxString(ValueToString(SubMember->value)), SubMember->name, SubMember->value, m_Document);
+            }
+
+            EnumChildren(Node, SubMember->value, m_Document);
+            ValidateTree(Node, SubMember->name, SubMember->value);
+            EntityTreeModelNode* ItemNode = ParentNode;
+            size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
+            bool Wrapped = ItemNode->IsWrapped();
+
+            CommandPattern Insert = make_shared<InsertSubTreeCommand>(
+                wxDataViewItem(Node),
+                wxDataViewItem(ItemNode->GetParent()),
+                (Index + i),
+                m_entity_view_model,
+                m_Document,
+                Wrapped
+                );
+
+            Group->PushCommand(Insert);
         }
-
-        CommandPattern Insert = make_shared<InsertSubTreeCommand>(
-            wxDataViewItem(Node),
-            wxDataViewItem(ItemNode->GetParent()),
-            (Index + i),
-            m_entity_view_model,
-            m_Document,
-            Wrapped
-            );
-
-        Group->PushCommand(Insert);
     }
 
     Group->Execute();
