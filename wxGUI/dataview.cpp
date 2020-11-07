@@ -999,7 +999,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     m_MHStatusTimer.SetOwner(this, ID_CHECK_MH_STATUS);
     m_MHStatusTimer.Start(5000);
 
-
+#if 0
 //    std::string TestClip = \
 //R"(item[1] = {
 //	eventCall = {
@@ -1034,6 +1034,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     wxString eventCallStr("eventCall");
     ParentNode = ParentNode->FindByName(0, 0, eventCallStr, 1, Index, true, true);
     InsertFromClipBoard(ParentNode);
+#endif
 }
 
 MyFrame::~MyFrame()
@@ -1996,19 +1997,38 @@ void MyFrame::QuickFind(wxCommandEvent& event)
 {
     int Id = event.GetId();
     wxString str("");
+    wxDataViewItem Select;
     switch (Id) {
         case ID_QF_INTRO_CUTSCENE:
+        {
             str = "entityDef intro_game_info_logic";
+            Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
+        }
         break;
         case ID_QF_SPAWN_LOCATION:
-            str = "entityDef intro_game_target_relay_player_start";
+        {
+            // Find all the class = "idPlayerStart"; nodes. Check for edit:initial=true
+            EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+            for (auto Iterator = Root->GetChildren().begin(); Iterator < Root->GetChildren().end(); Iterator++) {
+                wxString ClassName = GetEntityClass(*Iterator, (*Iterator)->m_key);
+                if (ClassName == "idPlayerStart") {
+                    size_t Index = 0;
+                    wxString ToFind = "initial";
+                    EntityTreeModelNode* Found = (*Iterator)->FindByName(0, 0, ToFind, 0, Index, true, true);
+                    if ((Found != nullptr) && (Found->m_value == "true")) {
+                        Select = wxDataViewItem(*Iterator);
+                        break;
+                    }
+                }
+            }
+        }
         break;
         case ID_QF_FIRST_ENCOUNTER:
             str = "entityDef spawn";
+            Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
         break;
     };
 
-    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
