@@ -197,11 +197,18 @@ void ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t Curr
             continue;
         }
 
+        if (ChildIndex >= Children.size()) {
+            break;
+        }
+
         if (wxString(ValueToString(member->name)).Matches("item[*]") != false) {
             // skip and reduce the tree for the next x items.
             for (auto member2 = member->value.MemberBegin(); member2 != member->value.MemberEnd(); member2++) {
                 ValidateTree(Children[ChildIndex], member2->name, member2->value, CurrentDepth + 1);
                 ChildIndex += 1;
+                if (ChildIndex >= Children.size()) {
+                    break;
+                }
             }
             continue;
         }

@@ -184,7 +184,7 @@ public:
     }
 
     void Execute() {
-        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject ? INSERT_TYPE_WRAP : INSERT_TYPE_NO_WRAP);
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject ? INSERT_TYPE_WRAP : INSERT_TYPE_AUTO);
         m_Deleted = false;
     }
 
@@ -362,6 +362,7 @@ private:
     void OnFilterType(wxCommandEvent& event);
     void OnFilterSearch(wxCommandEvent& event);
     void OnContextMenuSelect(wxCommandEvent& event);
+    void OnContextEncounterSelect(wxCommandEvent& event);
     void OnFilterTypeResources(wxCommandEvent& event);
     void OnFilterSearchResources(wxCommandEvent& event);
     void ProgressCancel(wxCommandEvent& event);
@@ -401,6 +402,11 @@ private:
     void InsertFromClipBoard(EntityTreeModelNode* ParentNode);
     void CopyToClipBoard(EntityTreeModelNode* Node);
     void ScheduleBuildEncounterToEntityMap(void);
+    void ReverseCommitExitTriggers(wxCommandEvent& event);
+    void ReverseEncounter(wxCommandEvent& event);
+    void TrackLocation(wxCommandEvent& event);
+    bool SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, float z, shared_ptr< _GroupedCommand> ExternalGroup = nullptr);
+    void SelectEncounterManager(wxString ActiveEncounter);
 
     wxNotebook* m_notebook;
 
@@ -451,6 +457,7 @@ private:
     std::future<void> m_FileOpenThread;
     std::future<void> m_EndThread;
     std::future<void> m_UpdateTimerThread;
+    std::vector<wxString> m_Encounters;
 
 private:
     // Flag used by OnListValueChanged(), see there.
@@ -689,6 +696,10 @@ enum
     ID_QF_SPAWN_LOCATION,
     ID_QF_FIRST_ENCOUNTER,
 
+    ID_SP_REVERSE_COMMIT_EXIT_TRIGGERS,
+    ID_SP_TRACK_LOCATION,
+    ID_SP_REVERSE_ENCOUNTER,
+
     ID_EXIT = wxID_EXIT,
 
     // about menu
@@ -775,6 +786,10 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_MENU(ID_QF_INTRO_CUTSCENE, MyFrame::QuickFind)
     EVT_MENU(ID_QF_SPAWN_LOCATION, MyFrame::QuickFind)
     EVT_MENU(ID_QF_FIRST_ENCOUNTER, MyFrame::QuickFind)
+
+    EVT_MENU(ID_SP_REVERSE_COMMIT_EXIT_TRIGGERS, MyFrame::ReverseCommitExitTriggers)
+    EVT_MENU(ID_SP_TRACK_LOCATION, MyFrame::TrackLocation)
+    EVT_MENU(ID_SP_REVERSE_ENCOUNTER, MyFrame::ReverseEncounter)
     
     EVT_NOTEBOOK_PAGE_CHANGED( wxID_ANY, MyFrame::OnPageChanged )
 
@@ -881,13 +896,23 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     wxMenu* quickfind_menu = new wxMenu;
     quickfind_menu->Append(ID_QF_INTRO_CUTSCENE, "Intro cutscene (intro_game_info_logic)");
-    quickfind_menu->Append(ID_QF_SPAWN_LOCATION, "Spawn point (intro_game_target_relay_player_start)");
+    quickfind_menu->Append(ID_QF_SPAWN_LOCATION, "Initial Spawn point");
+#if 0
     quickfind_menu->Append(ID_QF_FIRST_ENCOUNTER, "First encounter");
+#endif
+
+    wxMenu* special_menu = new wxMenu;
+    special_menu->Append(ID_SP_REVERSE_COMMIT_EXIT_TRIGGERS, "Reverse Commit and Exit triggers");
+#if 0
+    special_menu->Append(ID_SP_REVERSE_ENCOUNTER, "Reverse Encounter");
+    special_menu->Append(ID_SP_TRACK_LOCATION, "Track Location");
+#endif
 
     wxMenuBar *menu_bar = new wxMenuBar;
     menu_bar->Append(file_menu, "&File");
     menu_bar->Append(edit_menu, "&Edit");
     menu_bar->Append(quickfind_menu, "&Quick Find");
+    menu_bar->Append(special_menu, "&Special");
 
     SetMenuBar(menu_bar);
     CreateStatusBar();
@@ -3077,18 +3102,15 @@ EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &
     return Node;
 }
 
-void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
+void MyFrame::OnContextEncounterSelect(wxCommandEvent& event)
 {
-    char ActiveEncounter[MAX_PATH];
-    int Size = sizeof(ActiveEncounter);
-    memset(ActiveEncounter, 0, sizeof(ActiveEncounter));
-    bool Result = m_MeatHook.GetActiveEncounter(&Size, ActiveEncounter);
-    if ((Result == false) || (Size == 0)) {
-        return;
-    }
+    SelectEncounterManager(m_Encounters[event.GetId()]);
+}
 
-    EntityTreeModelNode *Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
-    EntityTreeModelNode *Found = Root->Find(wxString::Format("%s:entityDef %s", ActiveEncounter, ActiveEncounter));
+void MyFrame::SelectEncounterManager(wxString ActiveEncounter)
+{
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    EntityTreeModelNode* Found = Root->Find(wxString::Format("%s:entityDef %s", ActiveEncounter, ActiveEncounter));
     if (Found == nullptr) {
         return;
     }
@@ -3098,6 +3120,46 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
         m_LastNavigation.push_back(Select);
+    }
+}
+
+void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
+{
+    char ActiveEncounter[MAX_PATH * 20];
+    int Size = sizeof(ActiveEncounter);
+    memset(ActiveEncounter, 0, sizeof(ActiveEncounter));
+    bool Result = m_MeatHook.GetActiveEncounter(&Size, ActiveEncounter);
+    if ((Result == false) || (Size == 0)) {
+        return;
+    }
+
+    wxString ActiveEncounterString = ActiveEncounter;
+    
+    if (ActiveEncounterString.Freq(';') == 0) {
+        SelectEncounterManager(ActiveEncounter);
+
+    } else {
+        // Construct a context menu with all the currently active encounters.
+        wxMenu menu;
+        size_t Index = 0;
+        size_t Start = 0;
+        size_t End = ActiveEncounterString.Len();
+        m_Encounters.clear();
+        while (Start < ActiveEncounterString.Len()) {
+            End = ActiveEncounterString.find(';', Start);
+            if (End == wxString::npos) {
+                End = ActiveEncounterString.Len();
+            }
+
+            wxString EncounterString = ActiveEncounterString.SubString(Start, End - 1);
+            Start = End + 1;
+            menu.Append(Index, EncounterString);
+            m_Encounters.push_back(EncounterString);
+            Index += 1;
+        }
+
+        menu.Connect(wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(MyFrame::OnContextEncounterSelect), nullptr, this);
+        PopupMenu(&menu);
     }
 }
 
@@ -3223,4 +3285,138 @@ void MyFrame::ProgressCancel(wxCommandEvent& event)
         mainSizer->Layout();
         m_ProgressCurrent = m_ProgressEnd;
     }
+}
+
+void MyFrame::ReverseCommitExitTriggers(wxCommandEvent& event)
+{
+    // Run through all encounter managers.
+    // Follow into every entityDef:edit:commitTriggers (barge_encounter_trigger_commit_priest_room_no_gk)
+    // Follow into every entityDef:edit:exitTriggers
+
+    // Try to keep the same distances as the original.
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    for (auto Iterator = Root->GetChildren().begin(); Iterator < Root->GetChildren().end(); Iterator++) {
+        wxString ClassName = GetEntityClass(*Iterator, (*Iterator)->m_key);
+        if (ClassName == "idEncounterManager") {
+            std::vector<EntityTreeModelNode*> ExitNodes;
+            std::vector<wxString> ExitStrings = GetValueList((*Iterator), "exitTriggers");
+            for (auto String = ExitStrings.begin(); String != ExitStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position != nullptr) {
+                    ExitNodes.push_back(Position);
+                }
+            }
+
+            float EndX,EndY,EndZ;
+            float StartX, StartY, StartZ;
+            if (ExitNodes.empty() == false) {
+                GetSpawnPosition(ExitNodes[0], EndX, EndY, EndZ);
+
+            } else {
+                EndX = 0;
+                EndY = 0;
+                EndZ = 0;
+            }
+
+            std::vector<wxString> CommitStrings = GetValueList((*Iterator), "commitTriggers");
+            bool First = true;
+            for (auto String = CommitStrings.begin(); String != CommitStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position == nullptr) {
+                    continue;
+                }
+
+                if (First != false) {
+                    GetSpawnPosition(Position, StartX, StartY, StartZ);
+                    First = false;
+                }
+
+                SetSpawnPosition(Position, EndX, EndY, EndZ, Group);
+            }
+
+            if (First != false) {
+                continue;
+            }
+
+            for (auto Node = ExitNodes.begin(); Node != ExitNodes.end(); Node++) {
+                SetSpawnPosition((*Node), StartX, StartY, StartZ, Group);
+            }
+
+            std::vector<wxString> UserFlagStrings = GetValueList((*Iterator), "userFlagTriggers");
+            for (auto String = UserFlagStrings.begin(); String != UserFlagStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position == nullptr) {
+                    continue;
+                }
+
+                SetSpawnPosition(Position, EndX, EndY, EndZ, Group);
+            }
+
+            std::vector<wxString> SpawnGroupStrings = GetValueList((*Iterator), "spawnGroupTouchOverride");
+            for (auto String = UserFlagStrings.begin(); String != UserFlagStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position == nullptr) {
+                    continue;
+                }
+
+                SetSpawnPosition(Position, EndX, EndY, EndZ, Group);
+            }
+        }
+    }
+
+    Group->Execute();
+    PushCommand(Group);
+}
+
+void MyFrame::ReverseEncounter(wxCommandEvent& event)
+{
+    // Take a current encounter, take the last enemy and put it at the top.
+    // Keep all maintain counts at the same location.
+}
+
+void MyFrame::TrackLocation(wxCommandEvent& event)
+{
+
+}
+
+bool MyFrame::SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, float z, shared_ptr< _GroupedCommand> ExternalGroup)
+{
+    // Check for x,y,z
+    EntityTreeModelNode* NodeX = Node->GetNthChild(0);
+    EntityTreeModelNode* NodeY = Node->GetNthChild(1);
+    EntityTreeModelNode* NodeZ = Node->GetNthChild(2);
+    if (NodeX == nullptr || NodeY == nullptr || NodeZ == nullptr) {
+        return false;
+    }
+
+    if (NodeX->m_key != "x" || NodeY->m_key != "y" || NodeZ->m_key != "z") {
+        return false;
+    }
+
+    // Adjust the current nodes.
+    GroupedCommand Group = ExternalGroup;
+    if (ExternalGroup == nullptr) {
+        Group = make_shared<_GroupedCommand>();
+    }
+
+    CommandPattern ChangeCmd;
+    wxString strx, stry, strz;
+    strx = wxString::Format("%f", x);
+    stry = wxString::Format("%f", y);
+    strz = wxString::Format("%f", z);
+
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeX), m_entity_view_model, strx, 1);
+    Group->PushCommand(ChangeCmd);
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeY), m_entity_view_model, stry, 1);
+    Group->PushCommand(ChangeCmd);
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeZ), m_entity_view_model, strz, 1);
+    Group->PushCommand(ChangeCmd);
+
+    if (ExternalGroup != nullptr) {
+        Group->Execute();
+        PushCommand(Group);
+    }
+
+    return true;
 }

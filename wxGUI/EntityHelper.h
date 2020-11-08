@@ -523,3 +523,42 @@ EntityTreeModelNode* GetEntityDefNode(EntityTreeModelNode *Node)
 
     return EntityNode;
 }
+
+std::vector<wxString> GetValueList(EntityTreeModelNode* Node, wxString ToFind)
+{
+    std::vector<wxString> Result;
+    size_t Index = 0;
+    EntityTreeModelNode* CommitTriggers = Node->FindByName(0, 0, ToFind, 0, Index, true, true);
+    if (CommitTriggers == nullptr) {
+        return Result;
+    }
+
+    for (auto Iterator = CommitTriggers->GetChildren().begin(); Iterator != CommitTriggers->GetChildren().end(); Iterator++) {
+        Result.push_back((*Iterator)->m_value);
+    }
+
+    return Result;
+}
+
+bool GetSpawnPosition(EntityTreeModelNode* Node, float& x, float& y, float& z)
+{
+    if (Node == nullptr) {
+        return false;
+    }
+
+    EntityTreeModelNode* NodeX = Node->GetNthChild(0);
+    EntityTreeModelNode* NodeY = Node->GetNthChild(1);
+    EntityTreeModelNode* NodeZ = Node->GetNthChild(2);
+    if (NodeX == nullptr || NodeY == nullptr || NodeZ == nullptr) {
+        return false;
+    }
+
+    if (NodeX->m_key != "x" || NodeY->m_key != "y" || NodeZ->m_key != "z") {
+        return false;
+    }
+
+    x = NodeX->m_valueRef->GetDouble();
+    y = NodeY->m_valueRef->GetDouble();
+    z = NodeZ->m_valueRef->GetDouble();
+    return true;
+}
