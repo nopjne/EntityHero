@@ -3165,11 +3165,20 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
 
 void MyFrame::Copy(wxCommandEvent& event)
 {
-    CopyToClipBoard((EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID());
+    EntityTreeModelNode *Node = (EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID();
+    if (Node == nullptr) {
+        wxMessageBox("Please select something.", "No selection");
+    }
+
+    CopyToClipBoard(Node);
 }
 
 void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 {
+    if (Node == nullptr) {
+        return;
+    }
+
     EntityTreeModelNode* Parent = Node->GetParent();
     size_t Index = Parent->GetChildIndex(Node);
     if (Parent->IsArray() != false) {
@@ -3204,11 +3213,20 @@ void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 
 void MyFrame::Paste(wxCommandEvent& event)
 {
-    InsertFromClipBoard((EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID());
+    EntityTreeModelNode *PasteNode = (EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID();
+    if (PasteNode == nullptr) {
+        wxMessageBox("Please select the node to paste into.", "No selection");
+    }
+
+    InsertFromClipBoard(PasteNode);
 }
 
 void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
 {
+    if (ParentNode == nullptr) {
+        return;
+    }
+
     // Get from clipboard.
     OpenClipboard(GetHWND());
     char* Data = (char*)GetClipboardData(CF_TEXT);
