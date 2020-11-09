@@ -1950,12 +1950,21 @@ public:
                 DownFlags = 0x10000;
             }
 
+            if (ParentFlags & 0x20000) {
+                DownFlags = 0x20000;
+            }
+
             if (RAPIDJSON_UNLIKELY(!handler.StartObject(member->name.data_.f.flags | DownFlags)))
                 return false;
 
             // Array type flag.
             if (GetFlags() & 0x4000) {
-                ValueType ArrayCountValue((MemberEnd() - MemberBegin()) - 1);
+                size_t MemberCount = (MemberEnd() - MemberBegin()) - 1;
+                if ((handler.KeepNumForEmptyArray()) && (MemberCount == 0)) {
+                    MemberCount = MemberBegin()->value.GetInt();
+                }
+
+                ValueType ArrayCountValue(MemberCount);
                 if (RAPIDJSON_UNLIKELY(!handler.Key("num", 3, member->name.data_.f.flags, (member->name.data_.f.flags & kCopyFlag) != 0)))
                     return false;
                 if (RAPIDJSON_UNLIKELY(!ArrayCountValue.Accept(handler, member->name.data_.f.flags)))
@@ -1977,11 +1986,20 @@ public:
                 }
             } else {
                 for (ConstMemberIterator m = MemberBegin(); m != MemberEnd(); ++m) {
-                    RAPIDJSON_ASSERT(m->name.IsString()); // User may change the type of name by MemberIterator.
-                    if (RAPIDJSON_UNLIKELY(!handler.Key(m->name.GetString(), m->name.GetStringLength(), m->name.data_.f.flags, (m->name.data_.f.flags & kCopyFlag) != 0)))
-                        return false;
-                    if (RAPIDJSON_UNLIKELY(!m->value.Accept(handler, m->name.data_.f.flags)))
-                        return false;
+                    //RAPIDJSON_ASSERT(m->name.IsString()); // User may change the type of name by MemberIterator.
+                    if (m->name.IsString() != false) {
+                        if (RAPIDJSON_UNLIKELY(!handler.Key(m->name.GetString(), m->name.GetStringLength(), m->name.data_.f.flags, (m->name.data_.f.flags & kCopyFlag) != 0)))
+                            return false;
+
+                        if (RAPIDJSON_UNLIKELY(!m->value.Accept(handler, m->name.data_.f.flags)))
+                            return false;
+                    } else {
+                        if (RAPIDJSON_UNLIKELY(!handler.Key("", 0, m->name.data_.f.flags, (m->name.data_.f.flags & kCopyFlag) != 0)))
+                            return false;
+
+                        if (RAPIDJSON_UNLIKELY(!m->value.Accept(handler, m->name.data_.f.flags | 0x20000)))
+                            return false;
+                    }
                 }
             }
             return handler.EndObject(DownFlags, data_.o.size);

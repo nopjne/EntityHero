@@ -152,6 +152,72 @@ void ToStringValue(const char *Input, size_t Length, rapidjson::Value &Value)
     Value.SetFlags(true, UpperFlags);
 }
 
+void ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t CurrentDepth = 0)
+{
+    if (Node == nullptr) {
+        return;
+    }
+
+    wxASSERT(Node->m_key == ValueToString(key));
+    wxASSERT(Node->IsContainer() == val.IsObject());
+    wxASSERT(!(Node->m_key == "eventDef") || !Node->IsContainer());
+    for (int tab = 0; tab < CurrentDepth; tab += 1) {
+        OutputDebugStringA("    ");
+    }
+
+    OutputDebugStringA(ValueToString(key));
+    char String[MAX_PATH];
+    sprintf_s(String, " %llX", (unsigned __int64)Node);
+    OutputDebugStringA(String);
+    if (Node->IsContainer()) {
+        OutputDebugStringA(" Container ");
+    }
+
+    if (Node->m_valueRef->IsObject()) {
+        OutputDebugStringA("Object ");
+    }
+
+    OutputDebugStringA("\n");
+
+    if (val.IsObject() == false) {
+        return;
+    }
+
+    if (Node->IsContainer() == false) {
+        return;
+    }
+
+    int ArrayItemCount = 0;
+    int ArrayItem = 0;
+    int ChildIndex = 0;
+    auto Children = Node->GetChildren();
+    for (auto member = val.MemberBegin(); member != val.MemberEnd(); member++) {
+        if (strcmp(ValueToString(member->name), "num") == 0) {
+            // skip and reduce the tree for the next x items.
+            continue;
+        }
+
+        if (ChildIndex >= Children.size()) {
+            break;
+        }
+
+        if (wxString(ValueToString(member->name)).Matches("item[*]") != false) {
+            // skip and reduce the tree for the next x items.
+            for (auto member2 = member->value.MemberBegin(); member2 != member->value.MemberEnd(); member2++) {
+                ValidateTree(Children[ChildIndex], member2->name, member2->value, CurrentDepth + 1);
+                ChildIndex += 1;
+                if (ChildIndex >= Children.size()) {
+                    break;
+                }
+            }
+            continue;
+        }
+
+        ValidateTree(Children[ChildIndex], member->name, member->value, CurrentDepth + 1);
+        ChildIndex += 1;
+    }
+}
+
 void EnumChildren(EntityTreeModelNode *Parent, Value &val, rapidjson::Document& Document)
 {
     if (val.IsObject() == false) {
@@ -465,13 +531,15 @@ bool EntityTreeModel::IsArrayElement(wxDataViewItem* Item)
 
     if ((Parent->m_valueRef->GetFlags() & 0x4000) != 0) {
         // Check whether Parent is a direct ancestor, in JSON too.
-        for (auto Member = Parent->m_valueRef->MemberBegin(); Member != Parent->m_valueRef->MemberEnd(); Member++) {
-            if (&(Member->name) == Node->m_keyRef) {
-                return true;
-            }
-        }
-
-        return false;
+        // for (auto Member = Parent->m_valueRef->MemberBegin(); Member != Parent->m_valueRef->MemberEnd(); Member++) {
+        //     if (&(Member->name) == Node->m_keyRef) {
+        //         return true;
+        //     }
+        // }
+        // 
+        // return false;
+        //if (Node->m_keyRef)
+        return true;
     }
 
     return false;
@@ -533,7 +601,7 @@ EntityTreeModelNode* EntityTreeModel::Duplicate(wxDataViewItem* Item, rapidjson:
     }
 
     EnumChildren(NewNode, valueCopy, Document);
-    Parent->Insert(NewNode, ChildIndex + 1, Document);
+    Parent->Insert(NewNode, ChildIndex + 1, Document, INSERT_TYPE_AUTO);
     ItemAdded(GetParent(*Item), wxDataViewItem(NewNode));
     RebuildReferences(node->GetParent(), *(node->GetParent()->m_keyRef), *(node->GetParent()->m_valueRef), 1);
     RebuildReferences(NewNode, *(NewNode->m_keyRef), *(NewNode->m_valueRef), 0);
@@ -560,21 +628,56 @@ wxString EntityTreeModel::GetValue( const wxDataViewItem &item ) const
 
 void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Value &Key, rapidjson::Value& Value, size_t MaxDepth, size_t CurrentDepth)
 {
-    Node->m_keyRef = &Key;
-    Node->m_valueRef = &Value;
+    for (int tab = 0; tab < CurrentDepth; tab += 1) {
+        OutputDebugStringA("    ");
+    }
+
+    OutputDebugStringA(Node->m_key);
+    OutputDebugStringA(" ");
+    OutputDebugStringA(ValueToString(Key));
+    if (Node->IsContainer()) {
+        OutputDebugStringA(" Container ");
+    }
+
+    if (Node->m_valueRef->IsObject()) {
+        OutputDebugStringA("Object ");
+    }
+
+    OutputDebugStringA("\n");
 
     bool isObject = Node->m_valueRef->IsObject();
     assert(Node->IsContainer() == Node->m_valueRef->IsObject());
 
+    isObject = Value.IsObject();
+    assert(Node->IsContainer() == Value.IsObject());
+
+    Node->m_keyRef = &Key;
+    Node->m_valueRef = &Value;
+
     size_t ArrayItemCount = 0;
     size_t ArrayItem = 0;
-    if (MaxDepth != 0 && MaxDepth == CurrentDepth) {
+    if ((MaxDepth != 0) && (MaxDepth == CurrentDepth)) {
         return;
     }
 
     if (Node->IsContainer() != false) {
+        if (strcmp(ValueToString(*(Node->m_keyRef)), "entity") == 0) {
+            size_t Index = 0;
+            wxString ToFind = "entityDef ";
+            EntityTreeModelNode *Found = Node->FindByName(0, 1, ToFind, 0, Index, false, true);
+            if (Found != nullptr) {
+                Node->m_key = Found->m_key.substr(10);
+            }
+        }
+
         auto Member = Node->GetChildren().begin();
         for (auto JsonMember = Node->m_valueRef->MemberBegin(); JsonMember != Node->m_valueRef->MemberEnd(); JsonMember++) {
+            // for (int tab = 0; tab < CurrentDepth; tab += 1) {
+            //     OutputDebugStringA("    ");
+            // }
+            // 
+            // OutputDebugStringA(ValueToString(JsonMember->name));
+            // OutputDebugStringA("\n");
             if (strcmp(ValueToString(JsonMember->name), "num") == 0) {
                 // skip and reduce the tree for the next x items.
                 //ArrayItemCount = JsonMember->value.GetInt();
@@ -587,9 +690,9 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
                 sprintf(itemstr, "item[%i]", (int)ArrayItem);
                 if (JsonMember->value.GetType() == kObjectType) {
                     auto ArrayObject = JsonMember->value.GetObject();
+                    auto NextMember = Member + 1;
                     for (auto ArrayMember = ArrayObject.MemberBegin(); ArrayMember != ArrayObject.MemberEnd(); ArrayMember++) {
                         RebuildReferences(*Member, ArrayMember->name, ArrayMember->value, MaxDepth, CurrentDepth + 1);
-                        //(**Member).m_key = itemstr;
                         Member++;
                     }
 
@@ -661,7 +764,7 @@ void EntityTreeModel::Delete( const wxDataViewItem &item )
     ItemDeleted( parent, item );
 }
 
-int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, bool AsObject)
+int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, INSERT_TYPE InsertType)
 {
     EntityTreeModelNode* Node = (EntityTreeModelNode*)Item->GetID();
     if (!Node)      // happens if item.IsOk()==false
@@ -674,11 +777,14 @@ int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataView
     assert(Index != size_t(-1));
 
     // If inserting an object, the object also needs an additional item[x] object before it can be inserted.
-
-    ParentNode->Insert(Node, Index, Document, AsObject);
+    ValidateTree(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef));
+    ParentNode->Insert(Node, Index, Document, InsertType);
     ItemAdded(*ParentItem, wxDataViewItem(Node));
     RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+    //ValidateTree(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef));
     RebuildReferences(Node, *(Node->m_keyRef), *(Node->m_valueRef), 0);
+    ValidateTree(Node, *(Node->m_keyRef), *(Node->m_valueRef));
+
     return 1;
 }
 
@@ -736,6 +842,33 @@ void EntityTreeModel::GetValue( wxVariant &variant,
     }
 }
 
+void EntityTreeModel::GetJsonValue( wxVariant &variant,
+                                 const wxDataViewItem &item, unsigned int col ) const
+{
+    wxASSERT(item.IsOk());
+
+    EntityTreeModelNode *node = (EntityTreeModelNode*) item.GetID();
+    switch (col)
+    {
+    case 0:
+        variant = wxString(ValueToString(*(node->m_keyRef)));
+        break;
+    case 1:
+        if (node->HasContainerColumns()) {
+            EntityTreeModelNode* EncounterSpawnNode = node->Find("args:eEncounterSpawnType_t");
+            if (EncounterSpawnNode != nullptr) {
+                variant = wxString(ValueToString(*(EncounterSpawnNode->m_valueRef)));
+            }
+
+        } else {
+            variant = wxString(ValueToString(*(node->m_valueRef)));
+        }
+        break;
+    default:
+        wxLogError( "EntityTreeModel::GetValue: wrong column %d", col );
+    }
+}
+
 bool EntityTreeModel::SetValue( const wxVariant &variant,
                                  const wxDataViewItem &item, unsigned int col )
 {
@@ -746,13 +879,22 @@ bool EntityTreeModel::SetValue( const wxVariant &variant,
     switch (col)
     {
         case 0:
+        {
             node->m_key = variant.GetString();
             UpperFlags = node->m_keyRef->GetFlags() & 0xE000;
             node->m_keyRef->SetString(node->m_key.c_str().AsChar(), node->m_key.Len());
             node->m_keyRef->SetFlags(true, UpperFlags);
             node->m_keyCopy.SetString(node->m_key.c_str().AsChar(), node->m_key.Len());
             node->m_keyCopy.SetFlags(true, UpperFlags);
+
+            EntityTreeModelNode *ParentNode = node->GetParent();
+            if (ParentNode != nullptr) {
+                RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+                RebuildReferences(node, *(node->m_keyRef), *(node->m_valueRef), 0);
+            }
+
             return true;
+        }
         case 1:
             assert(node->IsContainer() == false);
             node->m_value = variant.GetString();

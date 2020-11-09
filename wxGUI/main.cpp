@@ -16,7 +16,7 @@ using namespace std;
 int gArrayCount = 0;
 int main(void)
 {
-    ifstream InputStream("../output_edited.txt");
+    ifstream InputStream("../chrispy.txt");
     if (InputStream.good() == false) {
         return 0;
     }
@@ -28,7 +28,7 @@ int main(void)
         printf("bad input file\n");
     }
 
-    ofstream OfStream("../reloaded.txt", std::ofstream::binary);
+    ofstream OfStream("../chrispy_out.txt", std::ofstream::binary);
     if (OfStream.good() == false) {
         return 0;
     }
@@ -38,7 +38,8 @@ int main(void)
         rapidjson::UTF8<char>,
         rapidjson::CrtAllocator,
         rapidjson::kWriteValidateEncodingFlag |
-        rapidjson::kWriteNanAndInfFlag> writer(osw);
+        rapidjson::kWriteNanAndInfFlag |
+        rapidjson::kWriteKeepNumForNullArray> writer(osw);
     writer.SetIndent('\t', 1);
     //rapidjson::OStreamWrapper OutStream(OfStream);
     document.Accept(writer, 0);

@@ -800,6 +800,14 @@ private:
                 return;
             }
 
+            // Handle unnamed scopes.
+            bool UnnamedScope = false;
+            if (inputCharpeek == '{') {
+                UnnamedScope = true;
+                if (RAPIDJSON_UNLIKELY(!handler.StartObject()))
+                    RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
+            }
+
             ParseValue<parseFlags>(is, handler);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
@@ -807,6 +815,12 @@ private:
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
             ++memberCount;
+
+            if (UnnamedScope != false) {
+                SkipWhitespaceNewLineAndComments<parseFlags>(is);
+                RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+                continue;
+            }
 
             char inputChar = is.Peek();
             switch (inputChar) {
@@ -826,6 +840,7 @@ private:
                 RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                 break;
             case '}':
+            case ';':
                 is.Take();
                 if (RAPIDJSON_UNLIKELY(!handler.EndObject(memberCount)))
                     RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
@@ -2066,6 +2081,12 @@ private:
                           RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                           SkipWhitespaceAndComments<parseFlags>(is);
                           RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+                          if (is.Peek() == '=') {
+                              is.Take();
+                              SkipWhitespaceAndComments<parseFlags>(is);
+                              RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+                          }
+
                           ParseValue<parseFlags>(is, handler);
                           RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
                       }

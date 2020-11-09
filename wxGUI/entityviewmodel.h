@@ -22,6 +22,12 @@ enum eSearchDirection
     PREV,
 };
 
+enum INSERT_TYPE {
+    INSERT_TYPE_AUTO = 0,
+    INSERT_TYPE_WRAP = 1,
+    INSERT_TYPE_NO_WRAP = 2,
+};
+
 class EntityTreeModelNode
 {
 public:
@@ -101,7 +107,7 @@ public:
         return false;
     }
 
-    void Insert(EntityTreeModelNode* child, unsigned int n, rapidjson::Document& Document, bool AsObject = false)
+    void Insert(EntityTreeModelNode* child, unsigned int n, rapidjson::Document& Document, INSERT_TYPE InsertType)
     {
         child->m_parent = this;
         m_children.Insert(child, n);
@@ -109,7 +115,18 @@ public:
             n += 1;
         }
 
-        if (((m_valueRef->GetFlags() & 0x4000) && (child->m_valueCopy.IsObject() != false)) || (AsObject != false)) {
+        bool Wrap = false;
+        if (InsertType == INSERT_TYPE::INSERT_TYPE_AUTO) {
+            Wrap = (m_valueRef->GetFlags() & 0x4000) && (child->m_valueCopy.IsObject() != false);
+
+        } else if (InsertType == INSERT_TYPE::INSERT_TYPE_WRAP) {
+            Wrap = true;
+
+        } else if (InsertType == INSERT_TYPE::INSERT_TYPE_NO_WRAP) {
+            Wrap = false;
+        }
+
+        if (Wrap != false) {
             rapidjson::Value ArrayItemValue;
             rapidjson::Value ArrayItemName;
             ArrayItemName.SetString("0");
@@ -182,7 +199,7 @@ public:
     wxString GetValue( const wxDataViewItem &item ) const;
     void Delete( const wxDataViewItem &item );
 
-    int Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, bool AsObject = false);
+    int Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, INSERT_TYPE InsertType);
     void RebuildReferences(EntityTreeModelNode* Node, rapidjson::Value& Key, rapidjson::Value& Value, size_t MaxDepth = 0, size_t CurrentDepth = 0);
     size_t CountByName(wxString& Text, bool Exact, size_t MaxDepth);
 
@@ -216,6 +233,10 @@ public:
 
     virtual void GetValue( wxVariant &variant,
                            const wxDataViewItem &item, unsigned int col ) const wxOVERRIDE;
+
+    virtual void GetJsonValue( wxVariant& variant,
+                               const wxDataViewItem& item, unsigned int col) const;
+
     virtual bool SetValue( const wxVariant &variant,
                            const wxDataViewItem &item, unsigned int col ) wxOVERRIDE;
 

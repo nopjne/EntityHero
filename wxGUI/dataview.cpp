@@ -48,6 +48,7 @@
 #include <map>
 #include <set>
 #include <sstream>
+#include <future>
 #include "Command.h"
 #include "Dialogs.h"
 #include "entityviewmodel.h"
@@ -57,6 +58,7 @@
 using namespace rapidjson;
 using namespace std;
 
+wxString gVersion = "0.5";
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -101,7 +103,7 @@ public:
             m_ParentItem = m_Model->GetParent(m_Item);
             m_Position = m_NewItem->GetParent()->GetChildIndex(m_NewItem);
         } else {
-            m_Model->Insert(&m_ParentItem, m_Position, &(wxDataViewItem(m_NewItem)), m_JsonDocument);
+            m_Model->Insert(&m_ParentItem, m_Position, &(wxDataViewItem(m_NewItem)), m_JsonDocument, INSERT_TYPE_AUTO);
         }
     }
 
@@ -147,7 +149,7 @@ public:
     }
 
     void Revert() {
-        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_WrappedNode);
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_WrappedNode ? INSERT_TYPE_WRAP : INSERT_TYPE_NO_WRAP);
         m_Deleted = false;
     }
 };
@@ -182,7 +184,7 @@ public:
     }
 
     void Execute() {
-        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject);
+        m_Model->Insert(&m_ParentItem, m_Position, &m_Item, m_JsonDocument, m_AsObject ? INSERT_TYPE_WRAP : INSERT_TYPE_AUTO);
         m_Deleted = false;
     }
 
@@ -205,12 +207,9 @@ public:
     ChangeItemCommand(wxDataViewItem Item, wxObjectDataPtr<EntityTreeModel> Model, wxString NewValue, size_t Column) :
         m_Item(Item), m_Model(Model), m_Column(Column), m_NewValue(NewValue) {
 
-        if (Column == 0) {
-            m_OldValue = m_Model->GetKey(Item);
-
-        } else {
-            m_OldValue = m_Model->GetValue(Item);
-        }
+        wxVariant Value;
+        m_Model->GetJsonValue(Value, Item, Column);
+        m_OldValue = wxString(Value);
     }
 
     wxString GetOldValue() {
@@ -363,8 +362,10 @@ private:
     void OnFilterType(wxCommandEvent& event);
     void OnFilterSearch(wxCommandEvent& event);
     void OnContextMenuSelect(wxCommandEvent& event);
+    void OnContextEncounterSelect(wxCommandEvent& event);
     void OnFilterTypeResources(wxCommandEvent& event);
     void OnFilterSearchResources(wxCommandEvent& event);
+    void ProgressCancel(wxCommandEvent& event);
 
     void QuickFind(wxCommandEvent& event);
 
@@ -400,6 +401,12 @@ private:
     void Paste(wxCommandEvent& event);
     void InsertFromClipBoard(EntityTreeModelNode* ParentNode);
     void CopyToClipBoard(EntityTreeModelNode* Node);
+    void ScheduleBuildEncounterToEntityMap(void);
+    void ReverseCommitExitTriggers(wxCommandEvent& event);
+    void ReverseEncounter(wxCommandEvent& event);
+    void TrackLocation(wxCommandEvent& event);
+    bool SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, float z, shared_ptr< _GroupedCommand> ExternalGroup = nullptr);
+    void SelectEncounterManager(wxString ActiveEncounter);
 
     wxNotebook* m_notebook;
 
@@ -446,9 +453,22 @@ private:
     wxString m_MhText;
     EntityTreeModelNode* m_DraggingNow;
     std::map<int, std::string> m_MenuMap;
+    std::future<void> m_Thread;
+    std::future<void> m_FileOpenThread;
+    std::future<void> m_EndThread;
+    std::future<void> m_UpdateTimerThread;
+    std::vector<wxString> m_Encounters;
+
 private:
     // Flag used by OnListValueChanged(), see there.
     bool m_eventFromProgram;
+    bool m_BuildingEntitiesMap;
+    size_t m_ProgressCurrent;
+    size_t m_ProgressEnd;
+    wxGauge* m_ProgressGuage;
+    wxStaticText* m_ProgressText;
+    wxBoxSizer* m_ProgressSizer;
+    wxSizer* mainSizer;
 
     wxDECLARE_EVENT_TABLE();
 };
@@ -624,7 +644,7 @@ bool MyApp::OnInit()
     }
 
     MyFrame *frame =
-        new MyFrame(NULL, "EntityHero v0.4 (by Scorp0rX0r)", 40, 40, 1000, 540);
+        new MyFrame(NULL, "EntityHero v" + gVersion + " (by Scorp0rX0r)", 40, 40, 1000, 540);
 
     frame->Show(true);
     return true;
@@ -676,6 +696,10 @@ enum
     ID_QF_SPAWN_LOCATION,
     ID_QF_FIRST_ENCOUNTER,
 
+    ID_SP_REVERSE_COMMIT_EXIT_TRIGGERS,
+    ID_SP_TRACK_LOCATION,
+    ID_SP_REVERSE_ENCOUNTER,
+
     ID_EXIT = wxID_EXIT,
 
     // about menu
@@ -697,6 +721,7 @@ enum
     ID_MH_GOTO_CURRENT_ENCOUNTER,
     ID_FILTER_SEARCH,
     ID_FILTER_SEARCH_RESOURCES,
+    ID_PROGRESS_CANCEL,
 
     ID_NAVIGTE_BACKWARD,
     ID_NAVIGTE_FORWARD,
@@ -761,6 +786,10 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_MENU(ID_QF_INTRO_CUTSCENE, MyFrame::QuickFind)
     EVT_MENU(ID_QF_SPAWN_LOCATION, MyFrame::QuickFind)
     EVT_MENU(ID_QF_FIRST_ENCOUNTER, MyFrame::QuickFind)
+
+    EVT_MENU(ID_SP_REVERSE_COMMIT_EXIT_TRIGGERS, MyFrame::ReverseCommitExitTriggers)
+    EVT_MENU(ID_SP_TRACK_LOCATION, MyFrame::TrackLocation)
+    EVT_MENU(ID_SP_REVERSE_ENCOUNTER, MyFrame::ReverseEncounter)
     
     EVT_NOTEBOOK_PAGE_CHANGED( wxID_ANY, MyFrame::OnPageChanged )
 
@@ -771,6 +800,7 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_BUTTON(ID_MH_PAUSE, MyFrame::MHPause)
     EVT_BUTTON(ID_MH_RELOAD, MyFrame::MHReload)
     EVT_BUTTON(ID_MH_GOTO_CURRENT_ENCOUNTER, MyFrame::MHGotoCurrentEncounter)
+    EVT_BUTTON(ID_PROGRESS_CANCEL, MyFrame::ProgressCancel)
     
     EVT_DATAVIEW_ITEM_VALUE_CHANGED( ID_ENTITY_CTRL, MyFrame::OnValueChanged )
 
@@ -809,7 +839,8 @@ wxEND_EVENT_TABLE()
 
 MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int h):
   wxFrame(frame, wxID_ANY, title, wxPoint(x, y), wxSize(w, h)),
-    m_Popup(nullptr)
+    m_Popup(nullptr),
+    m_BuildingEntitiesMap(false)
 {
     m_log = NULL;
     m_col = NULL;
@@ -865,13 +896,23 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     wxMenu* quickfind_menu = new wxMenu;
     quickfind_menu->Append(ID_QF_INTRO_CUTSCENE, "Intro cutscene (intro_game_info_logic)");
-    quickfind_menu->Append(ID_QF_SPAWN_LOCATION, "Spawn point (intro_game_target_relay_player_start)");
+    quickfind_menu->Append(ID_QF_SPAWN_LOCATION, "Initial Spawn point");
+#if 0
     quickfind_menu->Append(ID_QF_FIRST_ENCOUNTER, "First encounter");
+#endif
+
+    wxMenu* special_menu = new wxMenu;
+    special_menu->Append(ID_SP_REVERSE_COMMIT_EXIT_TRIGGERS, "Reverse Commit and Exit triggers");
+#if 0
+    special_menu->Append(ID_SP_REVERSE_ENCOUNTER, "Reverse Encounter");
+    special_menu->Append(ID_SP_TRACK_LOCATION, "Track Location");
+#endif
 
     wxMenuBar *menu_bar = new wxMenuBar;
     menu_bar->Append(file_menu, "&File");
     menu_bar->Append(edit_menu, "&Edit");
     menu_bar->Append(quickfind_menu, "&Quick Find");
+    menu_bar->Append(special_menu, "&Special");
 
     SetMenuBar(menu_bar);
     CreateStatusBar();
@@ -896,6 +937,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
                                    "&Reload level"), border);
     sizerCurrent->Add(new wxButton(firstPanel, ID_MH_GOTO_CURRENT_ENCOUNTER,
                                    "&Goto current encounter"), border);
+
     // 
     // Per request from the creator of meathook, randomize the displayed meathook name.
     //
@@ -946,7 +988,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     resourcesPanel->SetSizerAndFit(resourcesPanelSz);
     m_notebook->AddPage(resourcesPanel, "ResourceView");
 
-    wxSizer* mainSizer = new wxBoxSizer(wxVERTICAL);
+    mainSizer = new wxBoxSizer(wxVERTICAL);
 
     mainSizer->Add( m_notebook, 1, wxGROW );
 #ifdef _DEBUG
@@ -955,6 +997,16 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     m_log->Hide();
 #endif
 
+    m_ProgressSizer = new wxBoxSizer(wxHORIZONTAL);
+    m_ProgressGuage = new wxGauge(this, 0, 100);
+    m_ProgressGuage->SetValue(50);
+    m_ProgressGuage->SetRange(75);
+    m_ProgressText = new wxStaticText(this, wxID_ANY, "test");
+    m_ProgressSizer->Add(m_ProgressText, 0, wxGROW | wxALL, 5);
+    m_ProgressSizer->Add(m_ProgressGuage, 1, wxGROW | wxALL, 5);
+    m_ProgressSizer->Add(new wxButton(this, ID_PROGRESS_CANCEL, "Cancel", wxDefaultPosition, wxSize(50, 15)), 0, wxALL, 5);
+    mainSizer->Add(m_ProgressSizer, 0, wxGROW);
+    m_ProgressSizer->Show(false);
     SetSizerAndFit(mainSizer);
 
     wxAcceleratorEntry entries[7];
@@ -971,6 +1023,43 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
 
     m_MHStatusTimer.SetOwner(this, ID_CHECK_MH_STATUS);
     m_MHStatusTimer.Start(5000);
+
+#if 0
+//    std::string TestClip = \
+//R"(item[1] = {
+//	eventCall = {
+//		eventDef = "spawnSingleAI";
+//		args = {
+//			num = 3;
+//			item[0] = {
+//				eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ZOMBIE_TIER_1";
+//			}
+//			item[1] = {
+//				entity = "barge_target_spawn_intro_2";
+//			}
+//			item[2] = {
+//				string = "priest_room_zombies";
+//			}
+//		}
+//	}
+//})";
+//
+//    OpenClipboard(GetHWND());
+//    EmptyClipboard();
+//    HGLOBAL Memory = GlobalAlloc(GMEM_MOVEABLE, TestClip.size());
+//    HGLOBAL StringHandle = GlobalLock(Memory);
+//    memcpy((char*)StringHandle, TestClip.c_str(), TestClip.size());
+//    GlobalUnlock(StringHandle);
+//    SetClipboardData(CF_TEXT, StringHandle);
+//    CloseClipboard();
+
+    EntityTreeModelNode* ParentNode = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    ParentNode = ParentNode->Find("barge_encounter_manager_priest_room_no_gk:entityDef barge_encounter_manager_priest_room_no_gk:edit:encounterComponent:entityEvents:events");
+    size_t Index = 0;
+    wxString eventCallStr("eventCall");
+    ParentNode = ParentNode->FindByName(0, 0, eventCallStr, 1, Index, true, true);
+    InsertFromClipBoard(ParentNode);
+#endif
 }
 
 MyFrame::~MyFrame()
@@ -1026,7 +1115,7 @@ void MyFrame::BuildDataViewCtrl(wxPanel* parent, wxSizer* sizer, unsigned int nP
             column1->SetMinWidth(FromDIP(150)); // this column can't be resized to be smaller
             m_ctrl[Page_EntityView]->AppendColumn( column1 );
 
-            BuildEncounterToEntityMap((EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID()));
+            ScheduleBuildEncounterToEntityMap();
         }
         break;
     case Page_ResourcesView:
@@ -1271,7 +1360,7 @@ void MyFrame::OnQuit( wxCommandEvent& WXUNUSED(event) )
 void MyFrame::OnAbout( wxCommandEvent& WXUNUSED(event) )
 {
     wxAboutDialogInfo info;
-    info.SetName(_("EntityHero v0.1"));
+    info.SetName(_("EntityHero v") + gVersion);
     info.SetDescription(_("Doom Eternal entity file editor"));
     info.SetCopyright("(C) 2020");
     info.AddDeveloper("by Scorp0rX0r");
@@ -1519,7 +1608,15 @@ void MyFrame::OnExpanding(wxDataViewEvent& event)
 
 void MyFrame::OnStartEditing(wxDataViewEvent& event)
 {
-    if ((event.GetColumn() == 0) && (m_entity_view_model->IsArrayElement(&(event.GetItem())))) {
+    if (m_BuildingEntitiesMap != false) {
+        wxMessageBox("Please wait for the entity-map to finish building before editing.", "Still building entity map.");
+        event.Veto();
+    }
+
+    // if ((event.GetColumn() == 0) && (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false)) {
+    //     event.Veto();
+    // } else
+    if ((event.GetColumn() == 0) && (event.GetItem() == m_entity_view_model->GetRoot())) {
         event.Veto();
     } else if ((event.GetColumn() == 1) && (m_entity_view_model->HasContainerColumns(event.GetItem()))) {
         event.Veto();
@@ -1550,14 +1647,16 @@ void MyFrame::OnEditingStarted(wxDataViewEvent& event)
 {
     wxDataViewModel* const model = event.GetModel();
     wxVariant value;
-    model->GetValue(value, event.GetItem(), event.GetColumn());
+    m_entity_view_model->GetJsonValue(value, event.GetItem(), event.GetColumn());
     wxLogMessage("wxEVT_DATAVIEW_ITEM_EDITING_STARTED, current value %s",
         value.GetString());
 
     m_OldValue = value.GetString();
-    model->GetValue(value, event.GetItem(), 0);
     auto EditBox = ((wxTextCtrl*)event.GetDataViewColumn()->GetRenderer()->GetEditorCtrl());
-    EditBox->AutoComplete(new MyTextCompleter(value.GetString()));
+    EditBox->SetLabelText(m_OldValue);
+    wxVariant keyValue;
+    m_entity_view_model->GetJsonValue(keyValue, event.GetItem(), 0);
+    EditBox->AutoComplete(new MyTextCompleter(keyValue.GetString()));
     m_ChangeCmd = std::make_shared<ChangeItemCommand>(event.GetItem(), m_entity_view_model, wxT(""), event.GetColumn());
 }
 
@@ -1647,6 +1746,7 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
         if (Select.IsOk() != false) {
             m_ctrl[0]->SetCurrentItem(Select);
             m_ctrl[0]->EnsureVisible(Select);
+            m_LastNavigation.push_back(Select);
 
         } else {
             wxMessageBox(wxT("Could not resolve:") + str, wxT("Unresolved"), wxICON_INFORMATION | wxOK);
@@ -1907,7 +2007,7 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
         }
     }
 
-    if (m_entity_view_model->IsContainer(event.GetItem()) == false) {
+    if ((m_entity_view_model->IsContainer(event.GetItem()) == false)) {
         if (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false) {
             menu.Enable(CID_DUPLICATE, false);
         }
@@ -1922,22 +2022,42 @@ void MyFrame::QuickFind(wxCommandEvent& event)
 {
     int Id = event.GetId();
     wxString str("");
+    wxDataViewItem Select;
     switch (Id) {
         case ID_QF_INTRO_CUTSCENE:
+        {
             str = "entityDef intro_game_info_logic";
+            Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
+        }
         break;
         case ID_QF_SPAWN_LOCATION:
-            str = "entityDef intro_game_target_relay_player_start";
+        {
+            // Find all the class = "idPlayerStart"; nodes. Check for edit:initial=true
+            EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+            for (auto Iterator = Root->GetChildren().begin(); Iterator < Root->GetChildren().end(); Iterator++) {
+                wxString ClassName = GetEntityClass(*Iterator, (*Iterator)->m_key);
+                if (ClassName == "idPlayerStart") {
+                    size_t Index = 0;
+                    wxString ToFind = "initial";
+                    EntityTreeModelNode* Found = (*Iterator)->FindByName(0, 0, ToFind, 0, Index, true, true);
+                    if ((Found != nullptr) && (Found->m_value == "true")) {
+                        Select = wxDataViewItem(*Iterator);
+                        break;
+                    }
+                }
+            }
+        }
         break;
         case ID_QF_FIRST_ENCOUNTER:
             str = "entityDef spawn";
+            Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
         break;
     };
 
-    wxDataViewItem Select = m_entity_view_model->SelectText(str, eSearchDirection::NEXT, false, true);
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -1991,6 +2111,7 @@ void MyFrame::OnFilterSearch(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -2165,8 +2286,58 @@ void MyFrame::ExportFile(wxCommandEvent& event)
     m_Document.Accept(writer, 0);
 }
 
+void MyFrame::ScheduleBuildEncounterToEntityMap (
+    void
+    )
+{
+    if (m_Thread.valid()) {
+        m_Thread.wait();
+    }
+
+    if (m_ProgressText != nullptr) {
+        m_ProgressSizer->Show(true);
+        m_ProgressText->SetLabelText("Building entity map.");
+        mainSizer->Layout();
+    }
+
+    m_BuildingEntitiesMap = true;
+    m_Thread = std::async(BuildEncounterToEntityMap,
+                          (EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID()),
+                          &m_BuildingEntitiesMap,
+                          &m_ProgressCurrent,
+                          &m_ProgressEnd
+                          );
+
+    m_EndThread = std::async(std::launch::async, [this](){
+        if (m_Thread.valid()) {
+            m_Thread.wait();
+        }
+
+        if (m_ProgressSizer != nullptr) {
+            m_ProgressSizer->Show(false);
+            mainSizer->Layout();
+        }
+    });
+
+    m_UpdateTimerThread = std::async(std::launch::async, [this]() {
+        if (m_ProgressGuage == nullptr) {
+            return;
+        }
+
+        while (m_BuildingEntitiesMap != false) {
+            m_ProgressGuage->SetRange(m_ProgressEnd);
+            m_ProgressGuage->SetValue(m_ProgressCurrent);
+            Sleep(1000);
+        }
+    });
+}
+
 void MyFrame::ConstructTreeView()
 {
+    m_ProgressSizer->Show(true);
+    m_ProgressText->SetLabelText("Constructing tree view.");
+    mainSizer->Layout();
+
     m_ctrl[0]->ClearColumns();
     m_entity_view_model = new EntityTreeModel(m_Document);
 
@@ -2198,7 +2369,7 @@ void MyFrame::ConstructTreeView()
     m_UndoStack.clear();
     m_RedoStack.clear();
 
-    BuildEncounterToEntityMap((EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID()));
+    ScheduleBuildEncounterToEntityMap();
 }
 
 void MyFrame::OpenFile(wxCommandEvent& event)
@@ -2218,7 +2389,9 @@ void MyFrame::OpenFile(wxCommandEvent& event)
     if (openFileDialog.ShowModal() == wxID_CANCEL)
         return;
 
-    OpenFileInternal(openFileDialog.GetPath());
+    wxString Path = openFileDialog.GetPath();
+    //m_FileOpenThread = std::async(std::launch::async, [this, Path]() {OpenFileInternal(wxString(Path)); });
+    OpenFileInternal(wxString(Path));
 }
 
 bool MyFrame::OpenFileInternal(wxString FilePath)
@@ -2249,6 +2422,9 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
             if (wxMessageBox(_("Found one single entities file in the resources archive. Would you like to autoload?"), _("Autoload?"),
                 wxICON_QUESTION | wxYES_NO, this) == wxYES) {
 
+                m_ProgressSizer->Show(true);
+                m_ProgressText->SetLabelText("Loading enties file.");
+                mainSizer->Layout();
                 m_ResourceCtrl->SetHelpText(".entities");
                 m_ResourceCtrl->SetLabelText(".entities");
                 m_ResourceCtrl->SetHint("Filter");
@@ -2277,6 +2453,10 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
     InputStreamBinary.seekg(0, InputStreamBinary.beg);
 
     // Oodle decompress.
+    m_ProgressSizer->Show(true);
+    m_ProgressText->SetLabelText("Loading enties file.");
+    mainSizer->Layout();
+
     int Error = 0;
     char *DecompressedData = nullptr;
     size_t DecompressedSize;
@@ -2341,6 +2521,7 @@ void MyFrame::OpenFromMeathook(wxCommandEvent& event)
     if (m_MeatHook.GetEntitiesFile((unsigned char*)Path, &PathSize) != false) {
         Path[PathSize] = 0;
         // Load from file.
+        //m_FileOpenThread = std::async(std::launch::async, [this, Path](){OpenFileInternal(wxString(Path));} );
         OpenFileInternal(wxString(Path));
     }
 }
@@ -2484,6 +2665,7 @@ void MyFrame::SearchBackward(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -2509,6 +2691,7 @@ void MyFrame::SearchForward(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
     }
 }
 
@@ -2919,18 +3102,15 @@ EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &
     return Node;
 }
 
-void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
+void MyFrame::OnContextEncounterSelect(wxCommandEvent& event)
 {
-    char ActiveEncounter[MAX_PATH];
-    int Size = sizeof(ActiveEncounter);
-    memset(ActiveEncounter, 0, sizeof(ActiveEncounter));
-    bool Result = m_MeatHook.GetActiveEncounter(&Size, ActiveEncounter);
-    if ((Result == false) || (Size == 0)) {
-        return;
-    }
+    SelectEncounterManager(m_Encounters[event.GetId()]);
+}
 
-    EntityTreeModelNode *Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
-    EntityTreeModelNode *Found = Root->Find(wxString::Format("%s:entityDef %s", ActiveEncounter, ActiveEncounter));
+void MyFrame::SelectEncounterManager(wxString ActiveEncounter)
+{
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    EntityTreeModelNode* Found = Root->Find(wxString::Format("%s:entityDef %s", ActiveEncounter, ActiveEncounter));
     if (Found == nullptr) {
         return;
     }
@@ -2939,18 +3119,72 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
     if (Select.IsOk() != false) {
         m_ctrl[0]->SetCurrentItem(Select);
         m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
+    }
+}
+
+void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
+{
+    char ActiveEncounter[MAX_PATH * 20];
+    int Size = sizeof(ActiveEncounter);
+    memset(ActiveEncounter, 0, sizeof(ActiveEncounter));
+    bool Result = m_MeatHook.GetActiveEncounter(&Size, ActiveEncounter);
+    if ((Result == false) || (Size == 0)) {
+        return;
+    }
+
+    wxString ActiveEncounterString = ActiveEncounter;
+    
+    if (ActiveEncounterString.Freq(';') == 0) {
+        SelectEncounterManager(ActiveEncounter);
+
+    } else {
+        // Construct a context menu with all the currently active encounters.
+        wxMenu menu;
+        size_t Index = 0;
+        size_t Start = 0;
+        size_t End = ActiveEncounterString.Len();
+        m_Encounters.clear();
+        while (Start < ActiveEncounterString.Len()) {
+            End = ActiveEncounterString.find(';', Start);
+            if (End == wxString::npos) {
+                End = ActiveEncounterString.Len();
+            }
+
+            wxString EncounterString = ActiveEncounterString.SubString(Start, End - 1);
+            Start = End + 1;
+            menu.Append(Index, EncounterString);
+            m_Encounters.push_back(EncounterString);
+            Index += 1;
+        }
+
+        menu.Connect(wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(MyFrame::OnContextEncounterSelect), nullptr, this);
+        PopupMenu(&menu);
     }
 }
 
 void MyFrame::Copy(wxCommandEvent& event)
 {
-    CopyToClipBoard((EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID());
+    EntityTreeModelNode *Node = (EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID();
+    if (Node == nullptr) {
+        wxMessageBox("Please select something.", "No selection");
+    }
+
+    CopyToClipBoard(Node);
 }
 
 void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 {
+    if (Node == nullptr) {
+        return;
+    }
+
     EntityTreeModelNode* Parent = Node->GetParent();
     size_t Index = Parent->GetChildIndex(Node);
+    if (Parent->IsArray() != false) {
+        Index += 1;
+    }
+
     Document TempDoc;
     TempDoc.SetObject();
     TempDoc.InsertMember(Parent->m_valueRef->MemberBegin()[Index].name, Parent->m_valueRef->MemberBegin()[Index].value, m_Document.GetAllocator(), 0);
@@ -2979,11 +3213,20 @@ void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 
 void MyFrame::Paste(wxCommandEvent& event)
 {
-    InsertFromClipBoard((EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID());
+    EntityTreeModelNode *PasteNode = (EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID();
+    if (PasteNode == nullptr) {
+        wxMessageBox("Please select the node to paste into.", "No selection");
+    }
+
+    InsertFromClipBoard(PasteNode);
 }
 
 void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
 {
+    if (ParentNode == nullptr) {
+        return;
+    }
+
     // Get from clipboard.
     OpenClipboard(GetHWND());
     char* Data = (char*)GetClipboardData(CF_TEXT);
@@ -3009,23 +3252,189 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
     GroupedCommand Group = make_shared<_GroupedCommand>();
     for (size_t i = 0; i < PasteData.MemberCount(); i += 1) {
         auto Member = PasteData.MemberBegin() + i;
-        EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "", Member->name, Member->value, m_Document);
-        EnumChildren(Node, Member->value, m_Document);
-        EntityTreeModelNode* ItemNode = ParentNode;
-        size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
-        bool Wrapped = ItemNode->IsWrapped();
-        CommandPattern Insert = make_shared<InsertSubTreeCommand>(
-            wxDataViewItem(Node),
-            wxDataViewItem(ItemNode->GetParent()),
-            (Index + i),
-            m_entity_view_model,
-            m_Document,
-            Wrapped
-            );
+        EntityTreeModelNode* Node = nullptr;
+        size_t SubMemberCount = 1;
+        bool SkipParent = false;
+        if ((Member->value.IsObject() != false) && (wxString(ValueToString(Member->name)).Matches("item[*]") != false)) {
+            SubMemberCount = Member->value.MemberCount();
+            SkipParent = true;
+        }
 
-        Group->PushCommand(Insert);
+        auto SubMember = Member;
+        for (size_t SubIndex = 0; SubIndex < SubMemberCount; SubIndex += 1) {
+            if (SkipParent != false) {
+                SubMember = Member->value.MemberBegin() + SubIndex;
+            }
+
+            if (SubMember->value.IsObject() != false) {
+                Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(SubMember->name)), SubMember->name, SubMember->value, m_Document);
+
+            } else {
+                Node = new EntityTreeModelNode(nullptr, wxString(ValueToString(SubMember->name)), wxString(ValueToString(SubMember->value)), SubMember->name, SubMember->value, m_Document);
+            }
+
+            EnumChildren(Node, SubMember->value, m_Document);
+            ValidateTree(Node, SubMember->name, SubMember->value);
+            EntityTreeModelNode* ItemNode = ParentNode;
+            size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
+            bool Wrapped = ItemNode->IsWrapped();
+
+            CommandPattern Insert = make_shared<InsertSubTreeCommand>(
+                wxDataViewItem(Node),
+                wxDataViewItem(ItemNode->GetParent()),
+                (Index + i),
+                m_entity_view_model,
+                m_Document,
+                Wrapped
+                );
+
+            Group->PushCommand(Insert);
+        }
     }
 
     Group->Execute();
     PushCommand(Group);
+}
+
+void MyFrame::ProgressCancel(wxCommandEvent& event)
+{
+    if (wxMessageBox("Without an entity map most of the EntityHero features will be disabled.\nAre you sure you want to cancel building the entity map?", "Cancel", wxOK | wxCANCEL) == wxOK) {
+        m_ProgressText->SetLabelText("Cancelling..");
+        mainSizer->Layout();
+        m_ProgressCurrent = m_ProgressEnd;
+    }
+}
+
+void MyFrame::ReverseCommitExitTriggers(wxCommandEvent& event)
+{
+    // Run through all encounter managers.
+    // Follow into every entityDef:edit:commitTriggers (barge_encounter_trigger_commit_priest_room_no_gk)
+    // Follow into every entityDef:edit:exitTriggers
+
+    // Try to keep the same distances as the original.
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    for (auto Iterator = Root->GetChildren().begin(); Iterator < Root->GetChildren().end(); Iterator++) {
+        wxString ClassName = GetEntityClass(*Iterator, (*Iterator)->m_key);
+        if (ClassName == "idEncounterManager") {
+            std::vector<EntityTreeModelNode*> ExitNodes;
+            std::vector<wxString> ExitStrings = GetValueList((*Iterator), "exitTriggers");
+            for (auto String = ExitStrings.begin(); String != ExitStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position != nullptr) {
+                    ExitNodes.push_back(Position);
+                }
+            }
+
+            float EndX,EndY,EndZ;
+            float StartX, StartY, StartZ;
+            if (ExitNodes.empty() == false) {
+                GetSpawnPosition(ExitNodes[0], EndX, EndY, EndZ);
+
+            } else {
+                EndX = 0;
+                EndY = 0;
+                EndZ = 0;
+            }
+
+            std::vector<wxString> CommitStrings = GetValueList((*Iterator), "commitTriggers");
+            bool First = true;
+            for (auto String = CommitStrings.begin(); String != CommitStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position == nullptr) {
+                    continue;
+                }
+
+                if (First != false) {
+                    GetSpawnPosition(Position, StartX, StartY, StartZ);
+                    First = false;
+                }
+
+                SetSpawnPosition(Position, EndX, EndY, EndZ, Group);
+            }
+
+            if (First != false) {
+                continue;
+            }
+
+            for (auto Node = ExitNodes.begin(); Node != ExitNodes.end(); Node++) {
+                SetSpawnPosition((*Node), StartX, StartY, StartZ, Group);
+            }
+
+            std::vector<wxString> UserFlagStrings = GetValueList((*Iterator), "userFlagTriggers");
+            for (auto String = UserFlagStrings.begin(); String != UserFlagStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position == nullptr) {
+                    continue;
+                }
+
+                SetSpawnPosition(Position, EndX, EndY, EndZ, Group);
+            }
+
+            std::vector<wxString> SpawnGroupStrings = GetValueList((*Iterator), "spawnGroupTouchOverride");
+            for (auto String = UserFlagStrings.begin(); String != UserFlagStrings.end(); String++) {
+                EntityTreeModelNode* Position = Root->Find(*String + ":entityDef " + *String + ":edit:spawnPosition");
+                if (Position == nullptr) {
+                    continue;
+                }
+
+                SetSpawnPosition(Position, EndX, EndY, EndZ, Group);
+            }
+        }
+    }
+
+    Group->Execute();
+    PushCommand(Group);
+}
+
+void MyFrame::ReverseEncounter(wxCommandEvent& event)
+{
+    // Take a current encounter, take the last enemy and put it at the top.
+    // Keep all maintain counts at the same location.
+}
+
+void MyFrame::TrackLocation(wxCommandEvent& event)
+{
+
+}
+
+bool MyFrame::SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, float z, shared_ptr< _GroupedCommand> ExternalGroup)
+{
+    // Check for x,y,z
+    EntityTreeModelNode* NodeX = Node->GetNthChild(0);
+    EntityTreeModelNode* NodeY = Node->GetNthChild(1);
+    EntityTreeModelNode* NodeZ = Node->GetNthChild(2);
+    if (NodeX == nullptr || NodeY == nullptr || NodeZ == nullptr) {
+        return false;
+    }
+
+    if (NodeX->m_key != "x" || NodeY->m_key != "y" || NodeZ->m_key != "z") {
+        return false;
+    }
+
+    // Adjust the current nodes.
+    GroupedCommand Group = ExternalGroup;
+    if (ExternalGroup == nullptr) {
+        Group = make_shared<_GroupedCommand>();
+    }
+
+    CommandPattern ChangeCmd;
+    wxString strx, stry, strz;
+    strx = wxString::Format("%f", x);
+    stry = wxString::Format("%f", y);
+    strz = wxString::Format("%f", z);
+
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeX), m_entity_view_model, strx, 1);
+    Group->PushCommand(ChangeCmd);
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeY), m_entity_view_model, stry, 1);
+    Group->PushCommand(ChangeCmd);
+    ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(NodeZ), m_entity_view_model, strz, 1);
+    Group->PushCommand(ChangeCmd);
+
+    if (ExternalGroup != nullptr) {
+        Group->Execute();
+        PushCommand(Group);
+    }
+
+    return true;
 }
