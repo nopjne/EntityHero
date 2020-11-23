@@ -152,14 +152,24 @@ void ToStringValue(const char *Input, size_t Length, rapidjson::Value &Value)
     Value.SetFlags(true, UpperFlags);
 }
 
-void ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t CurrentDepth = 0)
+bool ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t CurrentDepth = 0)
 {
     if (Node == nullptr) {
-        return;
+        return true;
     }
 
-    wxASSERT(Node->m_key == ValueToString(key));
-    wxASSERT(Node->IsContainer() == val.IsObject());
+    if (Node->m_key == "root") {
+        return false;
+    }
+
+    if ((Node->m_key != ValueToString(key)) && (wxString(ValueToString(key)) != "entity")) {
+        return false;
+    }
+
+    if (Node->IsContainer() != val.IsObject()) {
+        return false;
+    }
+
     wxASSERT(!(Node->m_key == "eventDef") || !Node->IsContainer());
     for (int tab = 0; tab < CurrentDepth; tab += 1) {
         OutputDebugStringA("    ");
@@ -180,11 +190,11 @@ void ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t Curr
     OutputDebugStringA("\n");
 
     if (val.IsObject() == false) {
-        return;
+        return true;
     }
 
     if (Node->IsContainer() == false) {
-        return;
+        return true;
     }
 
     int ArrayItemCount = 0;
@@ -202,9 +212,25 @@ void ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t Curr
         }
 
         if (wxString(ValueToString(member->name)).Matches("item[*]") != false) {
+            if ((member->value.IsObject() == false) && (Children[ChildIndex]->GetChildCount() == 0)) {
+                if (Children[ChildIndex]->m_key != ValueToString(member->name)) {
+                    return false;
+                }
+
+                ChildIndex += 1;
+                continue;
+
+            } else if ((member->value.IsObject() != false) && (Children[ChildIndex]->IsContainer()) && (Children[ChildIndex]->GetChildCount() == 0)) {
+                return false;
+            }
+
             // skip and reduce the tree for the next x items.
             for (auto member2 = member->value.MemberBegin(); member2 != member->value.MemberEnd(); member2++) {
-                ValidateTree(Children[ChildIndex], member2->name, member2->value, CurrentDepth + 1);
+                bool Result = ValidateTree(Children[ChildIndex], member2->name, member2->value, CurrentDepth + 1);
+                if (Result == false) {
+                    return false;
+                }
+
                 ChildIndex += 1;
                 if (ChildIndex >= Children.size()) {
                     break;
@@ -213,9 +239,15 @@ void ValidateTree(EntityTreeModelNode* Node, Value& key, Value& val, size_t Curr
             continue;
         }
 
-        ValidateTree(Children[ChildIndex], member->name, member->value, CurrentDepth + 1);
+        bool Result = ValidateTree(Children[ChildIndex], member->name, member->value, CurrentDepth + 1);
+        if (Result == false) {
+            return false;
+        }
+
         ChildIndex += 1;
     }
+
+    return true;
 }
 
 void EnumChildren(EntityTreeModelNode *Parent, Value &val, rapidjson::Document& Document)

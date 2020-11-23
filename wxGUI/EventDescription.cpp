@@ -1,9 +1,10 @@
 #include <map>
+#include <vector>
 #include <string>
 #include <wx/string.h>
 #include "EventDescription.h"
 
-std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
+std::map<std::string, std::vector<std::pair<std::string, EntryDescription>>> EventDescriptor;
 std::map<std::string, MenuDescriptor> MenuDescription = {
     {"spawn", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"spawn*", "*spawn", "*spawn*", "spawn"}}},
     {"wait", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"wait*", "*wait", "wait", "*wait*"}}},
@@ -41,7 +42,7 @@ bool LoadEventDescriptor(void)
             break;
         }
 
-        EventDescriptor[NameA][Value] = {NameB, Index};
+        EventDescriptor[NameA].push_back({Value, {NameB, Index}});
         Index += 1;
     }
 

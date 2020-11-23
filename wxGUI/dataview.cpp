@@ -58,7 +58,7 @@
 using namespace rapidjson;
 using namespace std;
 
-wxString gVersion = "0.5";
+wxString gVersion = "0.6";
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -2301,7 +2301,7 @@ void MyFrame::ScheduleBuildEncounterToEntityMap (
     }
 
     m_BuildingEntitiesMap = true;
-    m_Thread = std::async(BuildEncounterToEntityMap,
+    m_Thread = std::async(BuildEncounterEntityMap2,
                           (EntityTreeModelNode*)(m_entity_view_model->GetRoot().GetID()),
                           &m_BuildingEntitiesMap,
                           &m_ProgressCurrent,
@@ -2766,9 +2766,21 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
     auto EventCallNode = EncounterNode->GetParent()->GetParent();
     wxString eventDefine = EventCallNode->Find("eventDef")->m_value;
     auto Descriptor = EventDescriptor[eventDefine.c_str().AsChar()];
-    auto Entry = Descriptor.find("idTargetSpawnGroup*");
+    auto Entry = Descriptor.end();
+    for (auto EntryIterator = Descriptor.begin(); EntryIterator != Descriptor.end(); EntryIterator++) {
+        if (EntryIterator->first == "idTargetSpawnGroup*") {
+            Entry = EntryIterator;
+            break;
+        }
+    }
+
     if (Entry == Descriptor.end()) {
-        Entry = Descriptor.find("idTarget_Spawn*");
+        for (auto EntryIterator = Descriptor.begin(); EntryIterator != Descriptor.end(); EntryIterator++) {
+            if (EntryIterator->first == "idTarget_Spawn*") {
+                Entry = EntryIterator;
+                break;
+            }
+        }
     }
 
     if (Entry == Descriptor.end()) {
@@ -2833,7 +2845,11 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
     }
 
     // Get the encounter nodes layer name.
-    EntityTreeModelNode *LayerNode = GetLayerNode(EncounterNode);
+    EntityTreeModelNode *LayerNode_x = GetLayerNode(EncounterNode);
+    wxString LayerValue = "";
+    if (LayerNode_x != nullptr) {
+        LayerValue = LayerNode_x->m_value;
+    }
 
     // Check if the SpawnGroup supports the new enemy type.
     std::vector<bool> EncounterPresent = SpawnTypeSupportedByGroup(Root, EntityDefNode, EncounterNode);
@@ -2844,7 +2860,7 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
 
     if (Found != false) {
         // Check whether the layers are correct.
-        if (IsLayerSupported(EntityDefNode, LayerNode->m_value) != false) {
+        if (IsLayerSupported(EntityDefNode, LayerValue) != false) {
             return;
         }
     }
@@ -2872,10 +2888,10 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
             return;
         }
 
-        EntityTreeModelNode *AI2Node = GetExistingAI2Node(Root, EncounterName, LayerNode->m_value);
+        EntityTreeModelNode *AI2Node = GetExistingAI2Node(Root, EncounterName, LayerValue);
         if (AI2Node == nullptr) {
             // Ask if user wants to duplicate.
-            wxString MessageString = wxString::Format("The idAI2(%s) is not part of layer(%s) do you want to duplicate (%s)?", EncounterName, LayerNode->m_value, EntityDefNode->m_key, EncounterName);
+            wxString MessageString = wxString::Format("The idAI2(%s) is not part of layer(%s) do you want to duplicate (%s)?", EncounterName, LayerValue, EntityDefNode->m_key, EncounterName);
             int result = wxMessageBox(MessageString, "idAI2 not in layer", wxICON_EXCLAMATION | wxYES_NO);
             if (result == wxNO) {
                 return;
@@ -2897,7 +2913,7 @@ void MyFrame::ResolveEncounterSpawnChange(EntityTreeModelNode *EncounterNode, wx
             // Overwrite the layer value.
             EntityTreeModelNode *Layer = AI2Node->Find("layers")->GetChildren()[0];
             CommandPattern ChangeCmd = std::make_shared<ChangeItemCommand>(wxDataViewItem(Layer), m_entity_view_model, wxT(""), 1);
-            ((ChangeItemCommand*)ChangeCmd.get())->SetNewValue(LayerNode->m_value);
+            ((ChangeItemCommand*)ChangeCmd.get())->SetNewValue(LayerValue);
             ChangeCmd->Execute();
             Command->PushCommand(ChangeCmd);
         }
@@ -3076,29 +3092,39 @@ EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &
     rapidjson::Value EventCallValue("", Document.GetAllocator());
     EventCallValue.SetObject();
     EventCallValue.AddMember(rapidjson::Value("eventDef", Document.GetAllocator()), rapidjson::Value(Name.c_str().AsChar(), Document.GetAllocator()), Document.GetAllocator());
-    rapidjson::Value Args;
+    rapidjson::Value Args("", Document.GetAllocator());
     Args.SetObject();
     auto NulValue = rapidjson::Value("0", Document.GetAllocator());
     NulValue.SetInt(0);
     Args.AddMember(rapidjson::Value("num", Document.GetAllocator()), NulValue, Document.GetAllocator());
     Args.SetFlags(true, 0x4000);
     for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
-        Args.AddMember(rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()), rapidjson::Value(Event.first.c_str(), Document.GetAllocator()), Document.GetAllocator());
+        wxString KeyName = wxString::Format("item[%i]", Event.second.Index);
+        Args.AddMember(rapidjson::Value(KeyName.c_str().AsChar(), Document.GetAllocator()), rapidjson::Value("", Document.GetAllocator()), Document.GetAllocator());
     }
 
     for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
-        Args.MemberBegin()[Event.second.Index + 1].name.SetString("item[x]", Document.GetAllocator());
+        wxString Translated = wxString::Format(Event.first.c_str());
+        if (Translated == "char*") {
+            Translated = "string";
+        } else if (Translated == "idTargetSpawnGroup*") {
+            Translated = "entity";
+        }
+
         Args.MemberBegin()[Event.second.Index + 1].value.SetObject();
         Args.MemberBegin()[Event.second.Index + 1].value.AddMember(
-            rapidjson::Value(Event.first.c_str(), Document.GetAllocator()), 
-            rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()), 
+            rapidjson::Value(Translated.c_str().AsChar(), Document.GetAllocator()),
+            rapidjson::Value(Event.second.Type.c_str(), Document.GetAllocator()),
             Document.GetAllocator()
             );
     }
 
     EventCallValue.AddMember(rapidjson::Value("args", Document.GetAllocator()), Args, Document.GetAllocator());
     EntityTreeModelNode* Node = new EntityTreeModelNode(nullptr, "eventCall", EventCallKey, EventCallValue, Document);
-    EnumChildren(Node, EventCallValue, Document);
+    Node->m_keyRef = &(Node->m_keyCopy);
+    Node->m_valueRef = &(Node->m_valueCopy);
+    EnumChildren(Node, *Node->m_valueRef, Document);
+    assert(ValidateTree(Node, *Node->m_keyRef, *Node->m_valueRef, 0) != false);
     return Node;
 }
 
@@ -3274,7 +3300,10 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
             }
 
             EnumChildren(Node, SubMember->value, m_Document);
-            ValidateTree(Node, SubMember->name, SubMember->value);
+            if (ValidateTree(Node, SubMember->name, SubMember->value) == false) {
+                wxMessageBox("Subtree validation failed", "The pasted item cannot be put here.");
+                return;
+            }
             EntityTreeModelNode* ItemNode = ParentNode;
             size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
             bool Wrapped = ItemNode->IsWrapped();
