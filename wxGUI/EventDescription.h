@@ -11,7 +11,7 @@ struct EntryDescription {
     int Index;
 };
 
-extern std::map<std::string, std::map<std::string, EntryDescription>> EventDescriptor;
+extern std::map<std::string, std::vector<std::pair<std::string, EntryDescription>>> EventDescriptor;
 
 struct MenuDescriptor {
     std::string Class; // idEncounterManager
