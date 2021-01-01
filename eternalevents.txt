@@ -180,3 +180,17 @@ waitForEventFlag:
 	userFlag : char*
 	testIfAlreadyRaised : bool
 	disableAIHighlight : bool
+
+nameOverrides:
+	char* : string
+	idMusicEntity* : entity
+	idTargetSpawnGroup* : entity
+	idDeclActorPopulation* : entity
+	idEntity* : entity
+
+spawnSpirit:
+	spawnTarget : idTargetSpawnGroup*
+	inhabitableSpawns : eEncounterSpawnType_t
+	group_label : char*
+	unk : bool
+	

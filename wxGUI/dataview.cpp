@@ -58,7 +58,7 @@
 using namespace rapidjson;
 using namespace std;
 
-wxString gVersion = "0.6";
+wxString gVersion = "0.7";
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -392,6 +392,7 @@ private:
     void MHPause(wxCommandEvent& event);
     void MHReload(wxCommandEvent& event);
     void MHGotoCurrentEncounter(wxCommandEvent& event);
+    void MHGotoCurrentCheckpoint(wxCommandEvent& event);
     void MHStatusCheck(wxTimerEvent& event);
     void ResolveEncounterSpawnChange(EntityTreeModelNode* EncounterNode, wxString OldValue);
     bool SetLocationNodeFromMH(EntityTreeModelNode* Node);
@@ -407,6 +408,7 @@ private:
     void TrackLocation(wxCommandEvent& event);
     bool SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, float z, shared_ptr< _GroupedCommand> ExternalGroup = nullptr);
     void SelectEncounterManager(wxString ActiveEncounter);
+    void SelectCheckpointByName(wxString CheckpointName);
 
     wxNotebook* m_notebook;
 
@@ -719,6 +721,7 @@ enum
     ID_MH_PAUSE,
     ID_MH_RELOAD,
     ID_MH_GOTO_CURRENT_ENCOUNTER,
+    ID_MH_GOTO_CURRENT_CHECKPOINT,
     ID_FILTER_SEARCH,
     ID_FILTER_SEARCH_RESOURCES,
     ID_PROGRESS_CANCEL,
@@ -800,6 +803,7 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_BUTTON(ID_MH_PAUSE, MyFrame::MHPause)
     EVT_BUTTON(ID_MH_RELOAD, MyFrame::MHReload)
     EVT_BUTTON(ID_MH_GOTO_CURRENT_ENCOUNTER, MyFrame::MHGotoCurrentEncounter)
+    EVT_BUTTON(ID_MH_GOTO_CURRENT_CHECKPOINT, MyFrame::MHGotoCurrentCheckpoint)
     EVT_BUTTON(ID_PROGRESS_CANCEL, MyFrame::ProgressCancel)
     
     EVT_DATAVIEW_ITEM_VALUE_CHANGED( ID_ENTITY_CTRL, MyFrame::OnValueChanged )
@@ -937,7 +941,8 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
                                    "&Reload level"), border);
     sizerCurrent->Add(new wxButton(firstPanel, ID_MH_GOTO_CURRENT_ENCOUNTER,
                                    "&Goto current encounter"), border);
-
+    sizerCurrent->Add(new wxButton(firstPanel, ID_MH_GOTO_CURRENT_CHECKPOINT,
+                                   "&Goto Checkpoint"), border);
     // 
     // Per request from the creator of meathook, randomize the displayed meathook name.
     //
@@ -1721,6 +1726,8 @@ enum CONTEXT_ID {
     CID_MH_GET_ROTATION,
     CID_COPY,
     CID_PASTE,
+    CID_MH_TELEPORT,
+    CID_MH_TRIGGER,
     CID_MAX
 };
 
@@ -1893,6 +1900,32 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             InsertFromClipBoard((EntityTreeModelNode*)Item.GetID());
         }
         break;
+        case CID_MH_TELEPORT:
+        {
+            // Find the entity def of this object.
+            EntityTreeModelNode *Node = GetEntityDefNode((EntityTreeModelNode*)Item.GetID());
+            if (Node != nullptr) {
+                wxString Name = Node->m_key.substr(10);
+                if (Name.Len() != 0) {
+                    Name = "teleport " + Name;
+                    m_MeatHook.ExecuteConsoleCommand((unsigned char*)Name.c_str().AsChar());
+                }
+            }
+        }
+        break;
+        case CID_MH_TRIGGER:
+        {
+            // Find the entitydef of this trigger.
+            EntityTreeModelNode* Node = GetEntityDefNode((EntityTreeModelNode*)Item.GetID());
+            if (Node != nullptr) {
+                wxString Name = Node->m_key.substr(10);
+                if (Name.Len() != 0) {
+                    Name = "trigger " + Name;
+                    m_MeatHook.ExecuteConsoleCommand((unsigned char*)Name.c_str().AsChar());
+                }
+            }
+        }
+        break;
         default:
             if (m_MenuMap.find(event.GetId()) != m_MenuMap.end()) {
                 wxString MenuString = m_MenuMap[event.GetId()];
@@ -2010,6 +2043,21 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     if ((m_entity_view_model->IsContainer(event.GetItem()) == false)) {
         if (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false) {
             menu.Enable(CID_DUPLICATE, false);
+        }
+    }
+
+    menu.Append(CID_MH_TELEPORT, "Teleport to entity MH (experimental - may crash Doom)");
+    if (m_MeatHook.m_Initialized == false) {
+        menu.Enable(CID_MH_TELEPORT, false);
+    }
+
+    EntityTreeModelNode *Node = (EntityTreeModelNode*)(event.GetItem().GetID());
+    wxString ClassName = GetEntityClassName(Node);
+    menu.Append(CID_MH_TRIGGER, "Trigger MH");
+    menu.Enable(CID_MH_TRIGGER, false);
+    if (ClassName == "idTrigger") {
+        if (m_MeatHook.m_Initialized != false) {
+            menu.Enable(CID_MH_TRIGGER, true);
         }
     }
 
@@ -2465,7 +2513,7 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
         MemoryStream memstream(DecompressedData, DecompressedSize);
         m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
         if (m_Document.HasParseError() != false) {
-            wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu", (long long)m_Document.GetErrorOffset());
+            wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu) _3", (long long)m_Document.GetErrorOffset());
             wxMessageBox(error, _("Error"), wxOK | wxICON_ERROR, this);
             Error = 1;
 #if 0
@@ -2488,7 +2536,7 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
         }
 
         if (m_Document.HasParseError() != false) {
-            wxMessageBox(wxString::Format("Error parsing the entities definition file. (Could not decompress or parse).\n%s\n (Syntax error at offset: %llu", FilePath, (long long)m_Document.GetErrorOffset()), _("Error"), wxOK, this);
+            wxMessageBox(wxString::Format("Error parsing the entities definition file. (Could not decompress or parse).\n%s\n (Syntax error at offset: %llu)", FilePath, (long long)m_Document.GetErrorOffset()), _("Error"), wxOK, this);
             Error = 1;
 
         } else {
@@ -2555,7 +2603,7 @@ void MyFrame::ImportFile(wxCommandEvent& event)
     rapidjson::IStreamWrapper InStream(InputStream);
     m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(InStream);
     if (m_Document.HasParseError() != false) {
-        wxMessageBox(_("Error parsing the entities syntax."), _("Error"), wxOK, this);
+        wxMessageBox(wxString::Format("Error parsing the entities syntax. (Syntax error offset : % llu).", m_Document.GetErrorOffset()), _("Error"), wxOK, this);
         Error = true;
     }
 
@@ -3105,10 +3153,9 @@ EntityTreeModelNode* ConstructInsertionTree(wxString Name, rapidjson::Document &
 
     for (auto Event : EventDescriptor[Name.c_str().AsChar()]) {
         wxString Translated = wxString::Format(Event.first.c_str());
-        if (Translated == "char*") {
-            Translated = "string";
-        } else if (Translated == "idTargetSpawnGroup*") {
-            Translated = "entity";
+        auto Override = NameOverrides.find(Translated.c_str().AsChar());
+        if (Override != NameOverrides.end()) {
+            Translated = Override->second;
         }
 
         Args.MemberBegin()[Event.second.Index + 1].value.SetObject();
@@ -3149,6 +3196,32 @@ void MyFrame::SelectEncounterManager(wxString ActiveEncounter)
     }
 }
 
+void MyFrame::SelectCheckpointByName(wxString CheckpointName)
+{
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    EntityTreeModelNode* Found = nullptr;
+    
+    for (auto Child : Root->GetChildren()) {
+        auto Checkpoint = Child->Find(wxString::Format("entityDef %s:edit:checkpointName", Child->m_key));
+        if ((Checkpoint != nullptr) && (Checkpoint->m_value == CheckpointName)) {
+            Found = Checkpoint;
+            break;
+        }
+    }
+
+    if (Found == nullptr) {
+        return;
+    }
+
+    wxDataViewItem Select = wxDataViewItem(Found);
+    if (Select.IsOk() != false) {
+        m_ctrl[0]->SetCurrentItem(Select);
+        m_ctrl[0]->EnsureVisible(Select);
+        m_LastNavigation.push_back(Select);
+    }
+}
+
+
 void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
 {
     char ActiveEncounter[MAX_PATH * 20];
@@ -3160,7 +3233,10 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
     }
 
     wxString ActiveEncounterString = ActiveEncounter;
-    
+    if (ActiveEncounterString.empty()) {
+        wxMessageBox("No active encounters", "There are currently no encounters that are active, try triggering an an encounter first.");
+    }
+
     if (ActiveEncounterString.Freq(';') == 0) {
         SelectEncounterManager(ActiveEncounter);
 
@@ -3187,6 +3263,20 @@ void MyFrame::MHGotoCurrentEncounter(wxCommandEvent& event)
         menu.Connect(wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(MyFrame::OnContextEncounterSelect), nullptr, this);
         PopupMenu(&menu);
     }
+}
+
+void MyFrame::MHGotoCurrentCheckpoint(wxCommandEvent& event)
+{
+    char Checkpoint[MAX_PATH * 20];
+    int Size = sizeof(Checkpoint);
+    memset(Checkpoint, 0, sizeof(Checkpoint));
+    bool Result = m_MeatHook.GetCurrentCheckpoint(&Size, Checkpoint);
+    if ((Result == false) || (Size == 0)) {
+        return;
+    }
+
+    wxString CheckpointString = Checkpoint;
+    SelectCheckpointByName(CheckpointString);
 }
 
 void MyFrame::Copy(wxCommandEvent& event)

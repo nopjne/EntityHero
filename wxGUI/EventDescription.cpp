@@ -4,6 +4,7 @@
 #include <wx/string.h>
 #include "EventDescription.h"
 
+std::map<std::string, std::string> NameOverrides;
 std::map<std::string, std::vector<std::pair<std::string, EntryDescription>>> EventDescriptor;
 std::map<std::string, MenuDescriptor> MenuDescription = {
     {"spawn", {"idEncounterManager", "edit:encounterComponent:entityEvents", {"spawn*", "*spawn", "*spawn*", "spawn"}}},
@@ -42,7 +43,12 @@ bool LoadEventDescriptor(void)
             break;
         }
 
-        EventDescriptor[NameA].push_back({Value, {NameB, Index}});
+        if (strcmp(NameA, "nameOverrides") == 0) {
+            NameOverrides[NameB] = Value;
+        } else {
+            EventDescriptor[NameA].push_back({Value, {NameB, Index}});
+        }
+
         Index += 1;
     }
 

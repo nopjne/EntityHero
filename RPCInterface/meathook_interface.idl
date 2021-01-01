@@ -10,6 +10,7 @@ interface meathook_interface
     void UploadData([in] int Size, [in] int Offset, [in, size_is(Size)] char * pBuffer);
     void GetEntitiesFile([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer );
     void GetActiveEncounter([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer );
+    void GetCurrentCheckpoint([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer );
     void GetSpawnInfo([in, out] int *Size, [out, size_is(*Size)] unsigned char * pBuffer);
     void KeepAlive([in, out] int *Size);
 }

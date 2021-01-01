@@ -35,6 +35,7 @@ int DecompressEntities(std::istream *input, char** OutDecompressedData, size_t& 
     // read compressed size
     size_t compressedSize;
     input->read((char*)&compressedSize, 8);
+    compressedSize &= 0xFFFFFFFF;
  
     // Verify that the compressed size is atleast sane.
     if ((InSize * 2) <= compressedSize) {
@@ -122,7 +123,9 @@ int CompressEntities(const char* destFilename, byte* uncompressedData, size_t si
     fwrite(&size, 8, 1, dest);
  
     // write compressed size
-    fwrite(&compressedSize, 8, 1, dest);
+    fwrite(&compressedSize, 4, 1, dest);
+    int nullBytes = 0; 
+    fwrite(&nullBytes, 4, 1, dest);
  
     // write compressed data
     fwrite(compressedData, 1, compressedSize, dest);

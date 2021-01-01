@@ -93,18 +93,34 @@ const char* ValueToString(Value &val)
     }
 }
 
-void ToStringValue(const char *Input, size_t Length, rapidjson::Value &Value)
+void ToStringValue(const char *Input, size_t Length, rapidjson::Value &Value, rapidjson::Type ForcedType = rapidjson::Type(-1))
 {
     int UpperFlags = Value.GetFlags() & 0xE000;
-    if (strcmp(Input, "null") == 0) {
-        Value.SetNull();
-    } else if (strcmp(Input, "false") == 0) {
-        Value.SetBool(false);
-    } else if (strcmp(Input, "true") == 0) {
-        Value.SetBool(true);
+    if (ForcedType == rapidjson::Type(-1)) {
+        ForcedType = Value.GetType();
     }
 
-    switch (Value.GetType()) {
+    // Hack around null,false,true. 
+    if (strcmp(Input, "null") == 0) {
+        Value.SetNull();
+        ForcedType = rapidjson::Type::kNullType;
+    } else if (strcmp(Input, "false") == 0) {
+        Value.SetBool(false);
+        ForcedType = rapidjson::Type::kFalseType;
+    } else if (strcmp(Input, "true") == 0) {
+        Value.SetBool(true);
+        ForcedType = rapidjson::Type::kTrueType;
+    } else if (wxString(Input).IsNumber()) {
+        if (wxString(Input).Index('.') != wxString::npos) {
+            Value.SetDouble(0);
+        } else {
+            Value.SetInt(0);
+        }
+
+        ForcedType = rapidjson::Type::kNumberType;
+    }
+
+    switch (ForcedType) {
         case kObjectType:
         {
             assert(false);
@@ -122,26 +138,30 @@ void ToStringValue(const char *Input, size_t Length, rapidjson::Value &Value)
                 double TempValue;
                 sscanf(Input, "%lf", &TempValue);
                 Value.SetDouble(TempValue);
-            }
-            else if (Value.IsInt())
-            {
+            } else if (Value.IsInt()) {
                 int TempValue;
                 sscanf(Input, "%i", &TempValue);
                 Value.SetInt(TempValue);
-            }
-            else if (Value.IsUint())
-            {
+            } else if (Value.IsUint()) {
                 unsigned int TempValue;
                 sscanf(Input, "%u", &TempValue);
                 Value.SetUint(TempValue);
-            }
-            else if (Value.IsInt64())
-            {
+            } else if (Value.IsInt64()) {
                 int64_t TempValue;
                 sscanf(Input, "%I64i", &TempValue);
                 Value.SetInt64(TempValue);
-            }
-            else {
+            } else if (Value.IsBool()) {
+                if (strcmp(Input, "false") == 0) {
+                    Value.SetBool(false);
+                }
+                else if (strcmp(Input, "true") == 0) {
+                    Value.SetBool(true);
+                }
+            } else if (Value.IsNull()) {
+                if (strcmp(Input, "null") == 0) {
+                    Value.SetNull();
+                }
+            } else {
                 uint64_t TempValue;
                 sscanf(Input, "%I64u", &TempValue);
                 Value.SetUint64(TempValue);
@@ -809,13 +829,17 @@ int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataView
     assert(Index != size_t(-1));
 
     // If inserting an object, the object also needs an additional item[x] object before it can be inserted.
+#ifdef _DEBUG
     ValidateTree(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef));
+#endif
     ParentNode->Insert(Node, Index, Document, InsertType);
     ItemAdded(*ParentItem, wxDataViewItem(Node));
     RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
     //ValidateTree(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef));
     RebuildReferences(Node, *(Node->m_keyRef), *(Node->m_valueRef), 0);
+#ifdef _DEBUG
     ValidateTree(Node, *(Node->m_keyRef), *(Node->m_valueRef));
+#endif
 
     return 1;
 }
@@ -921,18 +945,31 @@ bool EntityTreeModel::SetValue( const wxVariant &variant,
 
             EntityTreeModelNode *ParentNode = node->GetParent();
             if (ParentNode != nullptr) {
-                RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+                if (ParentNode != m_root) {
+                    RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+                }
+
                 RebuildReferences(node, *(node->m_keyRef), *(node->m_valueRef), 0);
             }
 
             return true;
         }
         case 1:
+        {
             assert(node->IsContainer() == false);
             node->m_value = variant.GetString();
-            ToStringValue(node->m_value.c_str().AsChar(), node->m_value.Len(), *(node->m_valueRef));
-            ToStringValue(node->m_value.c_str().AsChar(), node->m_value.Len(), node->m_valueCopy);
+            rapidjson::Type ForcedType = rapidjson::Type(-1);
+            if (node->m_key == "float") {
+                ForcedType = rapidjson::Type::kNumberType;
+            } else if (node->m_key == "int") {
+                ForcedType = rapidjson::Type::kNumberType;
+            }
+
+            ToStringValue(node->m_value.c_str().AsChar(), node->m_value.Len(), *(node->m_valueRef), ForcedType);
+            ToStringValue(node->m_value.c_str().AsChar(), node->m_value.Len(), node->m_valueCopy, ForcedType);
+            // Do additional handling for bool, int and float as these types need special flags in the json tree.
             return true;
+        }
         default:
             wxLogError( "EntityTreeModel::SetValue: wrong column" );
     }

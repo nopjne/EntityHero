@@ -344,59 +344,59 @@ void BuildEncounterToEntityMap(EntityTreeModelNode* root, bool *Busy, size_t *In
                 continue;
             }
 
-for (auto Event : Events->GetChildren()) {
-    wxString Type = Event->Find("eventCall:eventDef")->m_value;
-    int Index = SpawnTargetIndex(Type);
-    if (Index == -1) {
-        continue;
-    }
+            for (auto Event : Events->GetChildren()) {
+                wxString Type = Event->Find("eventCall:eventDef")->m_value;
+                int Index = SpawnTargetIndex(Type);
+                if (Index == -1) {
+                    continue;
+                }
 
-    EntityTreeModelNode* Arguments = Event->Find("eventCall:args");
-    EntityTreeModelNode* SpawnType = Arguments->Find("eEncounterSpawnType_t");
-    EntityTreeModelNode* SpawnTarget = Arguments->GetNthChild(Index);
-    if (SpawnTarget == nullptr) {
-        continue;
-    }
+                EntityTreeModelNode* Arguments = Event->Find("eventCall:args");
+                EntityTreeModelNode* SpawnType = Arguments->Find("eEncounterSpawnType_t");
+                EntityTreeModelNode* SpawnTarget = Arguments->GetNthChild(Index);
+                if (SpawnTarget == nullptr) {
+                    continue;
+                }
 
-    wxString SpawnTargetStr = SpawnTarget->m_value;
-    if (SpawnType == nullptr) {
-        continue;
-    }
+                wxString SpawnTargetStr = SpawnTarget->m_value;
+                if (SpawnType == nullptr) {
+                    continue;
+                }
 
-    //std::map<std::string, std::vector<Holder>> ValidEncounterMap = {
-    //{"ENCOUNTER_SPAWN_ARACHNOTRON", {{"cathedral_ai_heavy_arachnotron_1", "md6def/characters/monsters/arachnotron/base/arachnotron.md6"}}}
-    //};
-    wxString SpawnTypeStr = SpawnType->m_value;
-    int EncounterCount = SpawnTypeStr.Freq(' ') + 1;
-    size_t Start = 0;
-    size_t End = 0;
-    for (int EncounterIndex = 0; EncounterIndex < EncounterCount; EncounterIndex += 1) {
-        End = SpawnTypeStr.find(L' ', Start);
-        wxString SpawnToken = SpawnType->m_value.substr(Start, End);
-        Start = End;
+                //std::map<std::string, std::vector<Holder>> ValidEncounterMap = {
+                //{"ENCOUNTER_SPAWN_ARACHNOTRON", {{"cathedral_ai_heavy_arachnotron_1", "md6def/characters/monsters/arachnotron/base/arachnotron.md6"}}}
+                //};
+                wxString SpawnTypeStr = SpawnType->m_value;
+                int EncounterCount = SpawnTypeStr.Freq(' ') + 1;
+                size_t Start = 0;
+                size_t End = 0;
+                for (int EncounterIndex = 0; EncounterIndex < EncounterCount; EncounterIndex += 1) {
+                    End = SpawnTypeStr.find(L' ', Start);
+                    wxString SpawnToken = SpawnType->m_value.substr(Start, End);
+                    Start = End;
 
-        if (SpawnToken == "ENCOUNTER_SPAWN_ANY") {
-            continue;
-        }
+                    if (SpawnToken == "ENCOUNTER_SPAWN_ANY") {
+                        continue;
+                    }
 
-        wxString AI2String = GetAIDefinitionString(root, SpawnTargetStr, SpawnToken);
-        wxString ModelString = GetModelString(root, AI2String);
-        if (AI2String.empty() || ModelString.empty()) {
-            wxString Error = wxString::Format("Could not resolve %s in %s\n", SpawnToken, SpawnTargetStr);
-            OutputDebugStringA(Error.c_str().AsChar());
-            continue;
-        }
+                    wxString AI2String = GetAIDefinitionString(root, SpawnTargetStr, SpawnToken);
+                    wxString ModelString = GetModelString(root, AI2String);
+                    if (AI2String.empty() || ModelString.empty()) {
+                        wxString Error = wxString::Format("Could not resolve %s in %s\n", SpawnToken, SpawnTargetStr);
+                        OutputDebugStringA(Error.c_str().AsChar());
+                        continue;
+                    }
 
-        ValidEncounterMap[SpawnToken.c_str().AsChar()].push_back({ AI2String.c_str().AsChar(), ModelString.c_str().AsChar() });
+                    ValidEncounterMap[SpawnToken.c_str().AsChar()].push_back({ AI2String.c_str().AsChar(), ModelString.c_str().AsChar() });
 
-        EntityTreeModelNode* InheritNode = root->Find(wxString::Format("%s:entityDef %s:inherit", AI2String, AI2String));
-        if (InheritNode == nullptr) {
-            continue;
-        }
+                    EntityTreeModelNode* InheritNode = root->Find(wxString::Format("%s:entityDef %s:inherit", AI2String, AI2String));
+                    if (InheritNode == nullptr) {
+                        continue;
+                    }
 
-        AISpawnTypeMap[SpawnToken.c_str().AsChar()].push_back(InheritNode->m_value.c_str().AsChar());
-    }
-}
+                    AISpawnTypeMap[SpawnToken.c_str().AsChar()].push_back(InheritNode->m_value.c_str().AsChar());
+                }
+            }
         }
     }
 

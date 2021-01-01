@@ -78,6 +78,11 @@ void GetActiveEncounter(
     /* [out][in] */ int *Size,
     /* [size_is][out] */ unsigned char *pBuffer);
 
+void GetCurrentCheckpoint( 
+    /* [in] */ handle_t IDL_handle,
+    /* [out][in] */ int *Size,
+    /* [size_is][out] */ unsigned char *pBuffer);
+
 void GetSpawnInfo( 
     /* [in] */ handle_t IDL_handle,
     /* [out][in] */ int *Size,

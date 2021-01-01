@@ -36,7 +36,7 @@
 #include "meathook_interface.h"
 
 #define TYPE_FORMAT_STRING_SIZE   43                                
-#define PROC_FORMAT_STRING_SIZE   295                               
+#define PROC_FORMAT_STRING_SIZE   337                               
 #define EXPR_FORMAT_STRING_SIZE   1                                 
 #define TRANSMIT_AS_TABLE_SIZE    0            
 #define WIRE_MARSHAL_TABLE_SIZE   0            
@@ -177,7 +177,7 @@ void GetActiveEncounter(
 }
 
 
-void GetSpawnInfo( 
+void GetCurrentCheckpoint( 
     /* [in] */ handle_t IDL_handle,
     /* [out][in] */ int *Size,
     /* [size_is][out] */ unsigned char *pBuffer)
@@ -193,6 +193,22 @@ void GetSpawnInfo(
 }
 
 
+void GetSpawnInfo( 
+    /* [in] */ handle_t IDL_handle,
+    /* [out][in] */ int *Size,
+    /* [size_is][out] */ unsigned char *pBuffer)
+{
+
+    NdrClientCall2(
+                  ( PMIDL_STUB_DESC  )&meathook_interface_StubDesc,
+                  (PFORMAT_STRING) &meathook_interface__MIDL_ProcFormatString.Format[258],
+                  IDL_handle,
+                  Size,
+                  pBuffer);
+    
+}
+
+
 void KeepAlive( 
     /* [in] */ handle_t IDL_handle,
     /* [out][in] */ int *Size)
@@ -200,7 +216,7 @@ void KeepAlive(
 
     NdrClientCall2(
                   ( PMIDL_STUB_DESC  )&meathook_interface_StubDesc,
-                  (PFORMAT_STRING) &meathook_interface__MIDL_ProcFormatString.Format[258],
+                  (PFORMAT_STRING) &meathook_interface__MIDL_ProcFormatString.Format[300],
                   IDL_handle,
                   Size);
     
@@ -401,7 +417,7 @@ static const meathook_interface_MIDL_PROC_FORMAT_STRING meathook_interface__MIDL
 /* 212 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
 /* 214 */	NdrFcShort( 0x1e ),	/* Type Offset=30 */
 
-	/* Procedure GetSpawnInfo */
+	/* Procedure GetCurrentCheckpoint */
 
 /* 216 */	0x0,		/* 0 */
 			0x48,		/* Old Flags:  */
@@ -435,23 +451,23 @@ static const meathook_interface_MIDL_PROC_FORMAT_STRING meathook_interface__MIDL
 /* 254 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
 /* 256 */	NdrFcShort( 0x1e ),	/* Type Offset=30 */
 
-	/* Procedure KeepAlive */
+	/* Procedure GetSpawnInfo */
 
 /* 258 */	0x0,		/* 0 */
 			0x48,		/* Old Flags:  */
 /* 260 */	NdrFcLong( 0x0 ),	/* 0 */
 /* 264 */	NdrFcShort( 0x6 ),	/* 6 */
-/* 266 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
+/* 266 */	NdrFcShort( 0x18 ),	/* x86 Stack size/offset = 24 */
 /* 268 */	0x32,		/* FC_BIND_PRIMITIVE */
 			0x0,		/* 0 */
 /* 270 */	NdrFcShort( 0x0 ),	/* x86 Stack size/offset = 0 */
 /* 272 */	NdrFcShort( 0x1c ),	/* 28 */
 /* 274 */	NdrFcShort( 0x1c ),	/* 28 */
-/* 276 */	0x40,		/* Oi2 Flags:  has ext, */
-			0x1,		/* 1 */
+/* 276 */	0x41,		/* Oi2 Flags:  srv must size, has ext, */
+			0x2,		/* 2 */
 /* 278 */	0xa,		/* 10 */
-			0x1,		/* Ext Flags:  new corr desc, */
-/* 280 */	NdrFcShort( 0x0 ),	/* 0 */
+			0x3,		/* Ext Flags:  new corr desc, clt corr check, */
+/* 280 */	NdrFcShort( 0x1 ),	/* 1 */
 /* 282 */	NdrFcShort( 0x0 ),	/* 0 */
 /* 284 */	NdrFcShort( 0x0 ),	/* 0 */
 /* 286 */	NdrFcShort( 0x0 ),	/* 0 */
@@ -461,6 +477,40 @@ static const meathook_interface_MIDL_PROC_FORMAT_STRING meathook_interface__MIDL
 /* 288 */	NdrFcShort( 0x158 ),	/* Flags:  in, out, base type, simple ref, */
 /* 290 */	NdrFcShort( 0x8 ),	/* x86 Stack size/offset = 8 */
 /* 292 */	0x8,		/* FC_LONG */
+			0x0,		/* 0 */
+
+	/* Parameter pBuffer */
+
+/* 294 */	NdrFcShort( 0x113 ),	/* Flags:  must size, must free, out, simple ref, */
+/* 296 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
+/* 298 */	NdrFcShort( 0x1e ),	/* Type Offset=30 */
+
+	/* Procedure KeepAlive */
+
+/* 300 */	0x0,		/* 0 */
+			0x48,		/* Old Flags:  */
+/* 302 */	NdrFcLong( 0x0 ),	/* 0 */
+/* 306 */	NdrFcShort( 0x7 ),	/* 7 */
+/* 308 */	NdrFcShort( 0x10 ),	/* x86 Stack size/offset = 16 */
+/* 310 */	0x32,		/* FC_BIND_PRIMITIVE */
+			0x0,		/* 0 */
+/* 312 */	NdrFcShort( 0x0 ),	/* x86 Stack size/offset = 0 */
+/* 314 */	NdrFcShort( 0x1c ),	/* 28 */
+/* 316 */	NdrFcShort( 0x1c ),	/* 28 */
+/* 318 */	0x40,		/* Oi2 Flags:  has ext, */
+			0x1,		/* 1 */
+/* 320 */	0xa,		/* 10 */
+			0x1,		/* Ext Flags:  new corr desc, */
+/* 322 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 324 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 326 */	NdrFcShort( 0x0 ),	/* 0 */
+/* 328 */	NdrFcShort( 0x0 ),	/* 0 */
+
+	/* Parameter Size */
+
+/* 330 */	NdrFcShort( 0x158 ),	/* Flags:  in, out, base type, simple ref, */
+/* 332 */	NdrFcShort( 0x8 ),	/* x86 Stack size/offset = 8 */
+/* 334 */	0x8,		/* FC_LONG */
 			0x0,		/* 0 */
 
 			0x0
@@ -520,7 +570,8 @@ static const unsigned short meathook_interface_FormatStringOffsetTable[] =
     132,
     174,
     216,
-    258
+    258,
+    300
     };
 
 
