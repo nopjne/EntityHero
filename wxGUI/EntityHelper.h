@@ -716,14 +716,13 @@ void BuildEncounterEntityMap2(EntityTreeModelNode *Root, bool* Busy, size_t* Ind
         {"ai/heavy/pinky", "ENCOUNTER_SPAWN_PINKY"},
         {"ai/heavy/spectre", "ENCOUNTER_SPAWN_SPECTRE"},
         {"ai/fodder/carcass", "ENCOUNTER_SPAWN_CARCASS"},
-        {"ai/superheavy/archvile", "ENCOUNTER_SPAWN_ARCHVILE"}
-        // {"ai/ambient/buffpod", "ENCOUNTER_SPAWN_BUFFPOD"},
-        // {"ai/ambient/spirit_samuel"
-        // {"ai/ambient/spirit"
-        // {"ai/ambient/turret"
-        // {"ai/ambient/super_tentacle"
-        // {"ai/ambient/buffpod"
-        // {"ai/ambient/spirit"
+        {"ai/superheavy/archvile", "ENCOUNTER_SPAWN_ARCHVILE"},
+        {"ai/ambient/buffpod", "ENCOUNTER_SPAWN_BUFF_POD"},
+        // {"ai/ambient/spirit_samuel", "ENCOUNTER_SPAWN_SPIRIT_SAMUEL"},
+        // {"ai/ambient/spirit_samuel", "ENCOUNTER_SPAWN_SAMUEL_BOSS"},
+        {"ai/ambient/spirit", "ENCOUNTER_SPAWN_SPIRIT"},
+        {"ai/ambient/turret", "ENCOUNTER_SPAWN_TURRET"},
+        {"ai/ambient/super_tentacle", "ENCOUNTER_SPAWN_SUPER_TENTACLE"}
     };
 
     *MaxCount = Root->GetChildCount();

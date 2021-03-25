@@ -157,6 +157,7 @@ enum ParseFlag {
     kParseNumbersAsStringsFlag = 64,    //!< Parse all numbers (ints/doubles) as strings.
     kParseTrailingCommasFlag = 128, //!< Allow trailing commas at the end of objects and arrays.
     kParseNanAndInfFlag = 256,      //!< Allow parsing NaN, Inf, Infinity, -Inf and -Infinity as doubles.
+    kIgnoreWhiteSpacing = 0x100,    //!< Ignore whitespace inconsitencies.
     kParseDefaultFlags = RAPIDJSON_PARSE_DEFAULT_FLAGS  //!< Default parse flags. Can be customized by defining RAPIDJSON_PARSE_DEFAULT_FLAGS
 };
 
@@ -724,6 +725,10 @@ private:
         SkipWhitespaceAndNewLine(is);
 
         if (parseFlags & kParseCommentsFlag) {
+            if (is.Peek() != '/') {
+                return;
+            }
+
             while (RAPIDJSON_UNLIKELY(Consume(is, '/'))) {
                 if (Consume(is, '*')) {
                     while (true) {
@@ -753,6 +758,10 @@ private:
         SkipWhitespace(is);
 
         if (parseFlags & kParseCommentsFlag) {
+            if (is.Peek() != '/') {
+                return;
+            }
+
             while (RAPIDJSON_UNLIKELY(Consume(is, '/'))) {
                 if (Consume(is, '*')) {
                     while (true) {
@@ -846,7 +855,12 @@ private:
                     RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
                 return;
             default:
-                RAPIDJSON_PARSE_ERROR(kParseErrorObjectMissCommaOrCurlyBracket, is.Tell()); break; // This useless break is only for making warning and coverage happy
+                //if (memberCount <= 3) {
+                //    // Allow non-terminated lines to pass for Version and Hierarchyversion.
+                //} else {
+                //    RAPIDJSON_PARSE_ERROR(kParseErrorObjectMissCommaOrCurlyBracket, is.Tell()); break; // This useless break is only for making warning and coverage happy
+                //}
+                break;
             }
 
             if (parseFlags & kParseTrailingCommasFlag) {
@@ -942,7 +956,8 @@ private:
                     }
                     return;
                 default:
-                    RAPIDJSON_PARSE_ERROR(kParseErrorObjectMissCommaOrCurlyBracket, is.Tell()); break; // This useless break is only for making warning and coverage happy
+                    //RAPIDJSON_PARSE_ERROR(kParseErrorObjectMissCommaOrCurlyBracket, is.Tell()); break; // This useless break is only for making warning and coverage happy
+                    break;
             }
 
             if (parseFlags & kParseTrailingCommasFlag) {
@@ -1351,8 +1366,8 @@ private:
                 }
                 else
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringEscapeInvalid, escapeOffset);
-            }
-            else if (RAPIDJSON_UNLIKELY(c == ' ')) {    // Space.
+            } 
+            else if (RAPIDJSON_UNLIKELY(c == ' ') || RAPIDJSON_UNLIKELY(c == '=')) {    // Space.
                 bool entitydef = true;
                 Ch test[] = "entityDef";
                 for (int x = 0; x < sizeof(test) - 1; x += 1) {
@@ -2092,6 +2107,9 @@ private:
                       }
                       break;
         }
+
+        SkipWhitespaceNewLineAndComments<parseFlags>(is);
+        RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
     }
 
     // Iterative Parsing

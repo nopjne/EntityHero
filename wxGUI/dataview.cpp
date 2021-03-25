@@ -33,6 +33,7 @@
 #include "wx/textcompleter.h"
 #include "FileTreeModel.h"
 #include "wx/timer.h"
+#include "wx/filename.h"
 #include <mhclient.h>
 
 #include <rapidjson.h>
@@ -49,16 +50,18 @@
 #include <set>
 #include <sstream>
 #include <future>
+#include <filesystem>
 #include "Command.h"
 #include "Dialogs.h"
 #include "entityviewmodel.h"
 #include "EntityHelper.h"
 #include "EventDescription.h"
+#include "edit.h"
 
 using namespace rapidjson;
 using namespace std;
 
-wxString gVersion = "0.7";
+wxString gVersion = "0.8";
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -103,7 +106,8 @@ public:
             m_ParentItem = m_Model->GetParent(m_Item);
             m_Position = m_NewItem->GetParent()->GetChildIndex(m_NewItem);
         } else {
-            m_Model->Insert(&m_ParentItem, m_Position, &(wxDataViewItem(m_NewItem)), m_JsonDocument, INSERT_TYPE_AUTO);
+            wxDataViewItem NewItem = wxDataViewItem(m_NewItem);
+            m_Model->Insert(&m_ParentItem, m_Position, &NewItem, m_JsonDocument, INSERT_TYPE_AUTO);
         }
     }
 
@@ -299,7 +303,7 @@ public:
     MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int h);
     ~MyFrame();
 
-    void BuildDataViewCtrl(wxPanel* parent,
+    void BuildDataViewCtrl(wxWindow* parent,
                            wxSizer* sizer,
                            unsigned int nPanel,
                            unsigned long style = 0,
@@ -409,7 +413,11 @@ private:
     bool SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, float z, shared_ptr< _GroupedCommand> ExternalGroup = nullptr);
     void SelectEncounterManager(wxString ActiveEncounter);
     void SelectCheckpointByName(wxString CheckpointName);
+    bool InsertNodeFromDocument(EntityTreeModelNode* ParentNode, rapidjson::Value &PasteData, GroupedCommand& Group);
 
+    void MySetFocus(wxFocusEvent& event);
+    void MyHandleKillFocus(wxFocusEvent& event);
+    bool CommitChanges(void);
     wxNotebook* m_notebook;
 
     // the controls stored in the various tabs of the main notebook:
@@ -460,6 +468,8 @@ private:
     std::future<void> m_EndThread;
     std::future<void> m_UpdateTimerThread;
     std::vector<wxString> m_Encounters;
+    wxSplitterWindow* m_Splitter;
+    Edit* m_edit;
 
 private:
     // Flag used by OnListValueChanged(), see there.
@@ -839,7 +849,21 @@ wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_TEXT(ID_FILTER_SEARCH_RESOURCES, MyFrame::OnFilterTypeResources)
     EVT_TEXT_ENTER(ID_FILTER_SEARCH_RESOURCES, MyFrame::OnFilterSearchResources)
     EVT_TIMER(ID_CHECK_MH_STATUS, MyFrame::MHStatusCheck)
+    //EVT_SET_FOCUS(MyFrame::MySetFocus)
+    //EVT_KILL_FOCUS(MyFrame::MyHandleKillFocus)
 wxEND_EVENT_TABLE()
+
+void MyFrame::MySetFocus(wxFocusEvent& Event)
+{
+    int a = 0;
+    a += 1;
+}
+
+void MyFrame::MyHandleKillFocus(wxFocusEvent& Event)
+{
+    int a = 0;
+    a += 1;
+}
 
 MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int h):
   wxFrame(frame, wxID_ANY, title, wxPoint(x, y), wxSize(w, h)),
@@ -930,7 +954,12 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     m_notebook = new wxNotebook( this, wxID_ANY );
 
     wxPanel *firstPanel = new wxPanel( m_notebook, wxID_ANY );
-    BuildDataViewCtrl(firstPanel, nullptr, Page_EntityView);
+    m_Splitter = new wxSplitterWindow(firstPanel);
+    m_Splitter->SetMinimumPaneSize(20);
+    
+    m_edit = new Edit(m_Splitter, wxID_ANY);
+    BuildDataViewCtrl(m_Splitter, nullptr, Page_EntityView);
+    m_Splitter->SplitVertically(m_ctrl[Page_EntityView], m_edit, 100);
 
     const wxSizerFlags border = wxSizerFlags().DoubleBorder();
     wxBoxSizer *sizerCurrent = new wxBoxSizer(wxHORIZONTAL);
@@ -974,9 +1003,10 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     wxSizer *firstPanelSz = new wxBoxSizer( wxVERTICAL );
     m_ctrl[Page_EntityView]->SetMinSize(wxSize(-1, 200));
     firstPanelSz->Add(navigationSizer, 0, wxGROW | wxALL, 5);
-    firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW|wxALL, 5);
-    firstPanelSz->Add(m_MHInterfaceStatus, 0, wxGROW | wxALL, 5);
 
+    //firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW | wxALL, 5);
+    firstPanelSz->Add(m_Splitter, 1, wxGROW | wxALL, 5);
+    firstPanelSz->Add(m_MHInterfaceStatus, 0, wxGROW | wxALL, 5);
     firstPanelSz->Add(sizerCurrent);
     firstPanel->SetSizerAndFit(firstPanelSz);
     m_notebook->AddPage(firstPanel, "EntityView");
@@ -1014,7 +1044,7 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     m_ProgressSizer->Show(false);
     SetSizerAndFit(mainSizer);
 
-    wxAcceleratorEntry entries[7];
+    wxAcceleratorEntry entries[9];
     entries[0].Set(wxACCEL_CTRL, (int)'z', ID_UNDO);
     entries[1].Set(wxACCEL_CTRL, (int)'y', ID_REDO);
     entries[2].Set(wxACCEL_CTRL, (int)'s', ID_SAVE_FILE);
@@ -1022,49 +1052,20 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     entries[4].Set(wxACCEL_CTRL, (int)'.', ID_NAVIGTE_FORWARD);
     entries[5].Set(wxACCEL_CTRL, (int)'c', ID_COPY);
     entries[6].Set(wxACCEL_CTRL, (int)'v', ID_PASTE);
+    entries[7].Set(wxACCEL_CTRL, (int)'f', ID_SEARCH_FORWARD);
+    entries[8].Set(wxACCEL_CTRL | wxACCEL_SHIFT, (int)'f', ID_SEARCH_BACKWARD);
 
     wxAcceleratorTable accel(ARRAYSIZE(entries), entries);
     SetAcceleratorTable(accel);
 
+    // Setup the initial split point.
+    m_Splitter->SetSize(firstPanel->GetClientSize() / (2, 1));
+    m_Splitter->SetSashPosition(firstPanel->GetClientSize().x / 2, true);
+    m_Splitter->SetSashGravity(0.5);
+
+    // Start the status update timer.
     m_MHStatusTimer.SetOwner(this, ID_CHECK_MH_STATUS);
     m_MHStatusTimer.Start(5000);
-
-#if 0
-//    std::string TestClip = \
-//R"(item[1] = {
-//	eventCall = {
-//		eventDef = "spawnSingleAI";
-//		args = {
-//			num = 3;
-//			item[0] = {
-//				eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ZOMBIE_TIER_1";
-//			}
-//			item[1] = {
-//				entity = "barge_target_spawn_intro_2";
-//			}
-//			item[2] = {
-//				string = "priest_room_zombies";
-//			}
-//		}
-//	}
-//})";
-//
-//    OpenClipboard(GetHWND());
-//    EmptyClipboard();
-//    HGLOBAL Memory = GlobalAlloc(GMEM_MOVEABLE, TestClip.size());
-//    HGLOBAL StringHandle = GlobalLock(Memory);
-//    memcpy((char*)StringHandle, TestClip.c_str(), TestClip.size());
-//    GlobalUnlock(StringHandle);
-//    SetClipboardData(CF_TEXT, StringHandle);
-//    CloseClipboard();
-
-    EntityTreeModelNode* ParentNode = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
-    ParentNode = ParentNode->Find("barge_encounter_manager_priest_room_no_gk:entityDef barge_encounter_manager_priest_room_no_gk:edit:encounterComponent:entityEvents:events");
-    size_t Index = 0;
-    wxString eventCallStr("eventCall");
-    ParentNode = ParentNode->FindByName(0, 0, eventCallStr, 1, Index, true, true);
-    InsertFromClipBoard(ParentNode);
-#endif
 }
 
 MyFrame::~MyFrame()
@@ -1072,7 +1073,7 @@ MyFrame::~MyFrame()
     delete wxLog::SetActiveTarget(m_logOld);
 }
 
-void MyFrame::BuildDataViewCtrl(wxPanel* parent, wxSizer* sizer, unsigned int nPanel, unsigned long style, wxString Filter)
+void MyFrame::BuildDataViewCtrl(wxWindow* parent, wxSizer* sizer, unsigned int nPanel, unsigned long style, wxString Filter)
 {
     wxASSERT(!m_ctrl[nPanel]); // should only be initialized once
 
@@ -1127,7 +1128,7 @@ void MyFrame::BuildDataViewCtrl(wxPanel* parent, wxSizer* sizer, unsigned int nP
         {
             m_ctrl[Page_ResourcesView] =
                 new wxDataViewCtrl(parent, ID_FILE_CTRL, wxDefaultPosition,
-                    wxDefaultSize, style);
+                    wxDefaultSize, style | wxDV_MULTIPLE);
 
             m_ctrl[Page_ResourcesView]->Bind(wxEVT_CHAR, &MyFrame::OnDataViewChar, this);
 
@@ -1595,12 +1596,61 @@ void MyFrame::OnSelectionChanged(wxDataViewEvent& event)
         return;
     }
 
+    if (m_edit->Modified() != false) {
+        if (CommitChanges() == false) {
+            event.Veto();
+            // Select original object.
+            wxDataViewItem Select = wxDataViewItem(m_edit->GetCurrentNode());
+            m_ctrl[0]->SetCurrentItem(Select);
+            m_ctrl[0]->EnsureVisible(Select);
+            m_LastNavigation.push_back(Select);
+            return;
+        }
+    }
+
     m_LastNavigation.push_back(event.GetItem());
 
     wxString title = m_entity_view_model->GetKey(event.GetItem());
     if (title.empty())
         title = "None";
 
+    // Convert a node to JSON.
+    EntityTreeModelNode *Node = (EntityTreeModelNode*)event.GetItem().GetID();
+    if (Node == nullptr) {
+        return;
+    }
+
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    EntityTreeModelNode* Parent;
+    if (Node == Root) {
+        Parent = Root;
+    } else {
+        Parent = Node->GetParent();
+    }
+
+    size_t Index = Parent->GetChildIndex(Node);
+    if (Parent->IsArray() != false) {
+        Index += 1;
+    }
+
+    Document TempDoc;
+    TempDoc.SetObject();
+    TempDoc.InsertMember(Parent->m_valueRef->MemberBegin()[Index].name, Parent->m_valueRef->MemberBegin()[Index].value, m_Document.GetAllocator(), 0);
+    byte* Data = nullptr;
+    size_t DataSize = 0;
+    StringBuffer buffer;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer,
+        rapidjson::UTF8<char>,
+        rapidjson::UTF8<char>,
+        rapidjson::CrtAllocator,
+        rapidjson::kWriteValidateEncodingFlag |
+        rapidjson::kWriteNanAndInfFlag> writer(buffer);
+    writer.SetIndent('\t', 1);
+    TempDoc.Accept(writer, 0);
+
+    wxString Text(buffer.GetString(), buffer.GetSize());
+    m_edit->SetTextAndHighlight(Text, Node);
+    m_edit->SetViewWhiteSpace(wxSTC_WS_VISIBLEALWAYS);
     wxLogMessage("wxEVT_DATAVIEW_SELECTION_CHANGED, First selected Item: %s", title);
 }
 
@@ -1714,6 +1764,34 @@ wxString MyFrame::FindUnusedName(wxString Base)
     return Unused;
 }
 
+wxFileName GetFileNameFromInfo(wxString SaveString, wxString FileName)
+{
+    wxString FileLocalPath = SaveString + wxString(FileName);
+    size_t FirstSplit = FileLocalPath.find("$");
+    size_t PartNumber = FileLocalPath.find("part=");
+    if (FirstSplit == wxString::npos) {
+        FirstSplit = FileLocalPath.length();
+    }
+
+    unsigned long PartCount = 0;
+    if (PartNumber != wxString::npos) {
+        size_t Number = FileLocalPath.find("$", PartNumber);
+        wxString NumberString = FileLocalPath.substr(PartNumber + 5, Number);
+        NumberString.ToULong((unsigned long*)&PartCount);
+    }
+
+    wxFileName FilePath;
+    if (PartCount != 0) {
+        FilePath = wxFileName(wxString::Format("%s_%i", FileLocalPath.substr(0, FirstSplit), PartCount));
+    }
+    else {
+        FilePath = wxFileName(wxString::Format("%s", FileLocalPath.substr(0, FirstSplit)));
+    }
+
+    return FilePath;
+}
+
+
 enum CONTEXT_ID {
     CID_GOTO_REFERENCE,
     CID_DUPLICATE,
@@ -1728,6 +1806,8 @@ enum CONTEXT_ID {
     CID_PASTE,
     CID_MH_TELEPORT,
     CID_MH_TRIGGER,
+    CID_EXPORT_FILES,
+    CID_IMPORT_FILES,
     CID_MAX
 };
 
@@ -1876,6 +1956,107 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             FileTreeModelNode* Node = (FileTreeModelNode*)Item.GetID();
             auto FileInfo = Node->GetIDFile();
             OpenEntitiesFromResources(FileInfo);
+        }
+        break;
+        case CID_EXPORT_FILES:
+        {
+            // Ask user where to output to.
+            wxFileDialog
+                saveFileDialog(this, _("Save location"), "", "",
+                    "Entities files (*.entities)|*.entities", wxFD_SAVE | wxFD_MULTIPLE | wxFD_OVERWRITE_PROMPT);
+
+            if (saveFileDialog.ShowModal() == wxID_CANCEL) {
+                return;
+            }
+
+            // Iterate over all the the selected files.
+            wxDataViewItemArray SelectionArray;
+            m_ctrl[Page_ResourcesView]->GetSelections(SelectionArray);
+            std::vector<char> BufferVector;
+            for (auto ArrayItem : SelectionArray) {
+                FileTreeModelNode* Node = (FileTreeModelNode*)Item.GetID();
+                auto FileInfo = Node->GetIDFile();
+
+                // Get the file path and append the part number.
+                wxFileName FilePath = GetFileNameFromInfo(saveFileDialog.GetPath(), wxString(FileInfo.FileName));
+                FILE *FileHandle = nullptr;
+                wxString StringFileName;
+                FilePath.FileName(StringFileName);
+                int Result = fopen_s(&FileHandle, StringFileName, "wb");
+                if ((Result == 0) && (FileHandle != nullptr)) {
+                    // Allocate a buffer for the raw file.
+                    size_t Size = FileInfo.SizeUncompressed;
+                    BufferVector.resize(Size);
+                    char *Buffer = &(BufferVector[0]);
+                    // Read the file.
+                    IDCLReader ResourceReader;
+                    ResourceReader.ReadFile(FileInfo, Buffer, Size);
+                    fwrite(Buffer, 1, Size, FileHandle);
+                    fclose(FileHandle);
+                }
+            }
+        }
+        break;
+        case CID_IMPORT_FILES:
+        {
+            // If only one selected file allow user to select any file.
+            // If multiple files are selected ask user the directory, where to import from.
+            wxDataViewItemArray SelectionArray;
+            m_ctrl[Page_ResourcesView]->GetSelections(SelectionArray);
+
+            wxString Path;
+            if (SelectionArray.size() == 1) {
+                wxFileDialog openFileDialog(this, _("Open replacement file"), "", "", "*.*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+                if (openFileDialog.ShowModal() == wxID_CANCEL) {
+                    return;
+                }
+
+                Path = openFileDialog.GetPath();
+            } else {
+                // Open a directory.
+                wxFileDialog openFileDialog(this, _("Open replacement directory"), "", "", "*.*", wxFD_OPEN);
+                if (openFileDialog.ShowModal() == wxID_CANCEL) {
+                    return;
+                }
+
+                Path = openFileDialog.GetPath();
+            }
+
+            std::vector<char> Buffer;
+            for (auto ArrayItem : SelectionArray) {
+                // Iterate over all selected files and check if they are in the specified location.
+                FileTreeModelNode* Node = (FileTreeModelNode*)Item.GetID();
+                auto FileInfo = Node->GetIDFile();
+                // Attempt to open the file.
+                wxFileName FilePath;
+                if (SelectionArray.size() == 1) {
+                    FilePath = Path;
+
+                } else {
+                    FilePath = GetFileNameFromInfo(Path, wxString(FileInfo.FileName));
+                }
+
+                if (FilePath.Exists() == false) {
+                    continue;
+                }
+
+                FILE *FileHandle;
+                int Result = fopen_s(&FileHandle, FilePath.GetFullPath(), "rb");
+                if (Result != 0) {
+                    continue;
+                }
+
+                fseek(FileHandle, 0, SEEK_END);
+                size_t Size = ftell(FileHandle);
+                Buffer.resize(Size);
+                fseek(FileHandle, 0, SEEK_SET);
+                fread(&(Buffer[0]), 1, Size, FileHandle);
+                fclose(FileHandle);
+
+                // Insert into resources file.
+                IDCLReader ResourceReader;
+                ResourceReader.WriteFile(FileInfo, &(Buffer[0]), Size);
+            }
         }
         break;
         case CID_MH_GET_POSITION:
@@ -2041,7 +2222,8 @@ void MyFrame::OnContextMenu( wxDataViewEvent &event )
     }
 
     if ((m_entity_view_model->IsContainer(event.GetItem()) == false)) {
-        if (m_entity_view_model->IsArrayElement(&(event.GetItem())) == false) {
+        wxDataViewItem NewItem = wxDataViewItem(event.GetItem());
+        if (m_entity_view_model->IsArrayElement(&NewItem) == false) {
             menu.Enable(CID_DUPLICATE, false);
         }
     }
@@ -2115,14 +2297,14 @@ void MyFrame::OnContextFileMenu(wxDataViewEvent& event)
     FileTreeModelNode* node = (FileTreeModelNode*)(event.GetItem()).GetID();
 
     wxMenu menu;
-    menu.Append(CID_OPEN_FILE, "Open file");
-    menu.Append(CID_REINJECT_FILE, "Reinject");
-
     wxString FileName(node->GetIDFile().FileName);
-    if (FileName.Matches("*.entities") == false) {
-        menu.Enable(CID_OPEN_FILE, false);
-        menu.Enable(CID_REINJECT_FILE, false);
+    if (FileName.Matches("*.entities") != false) {
+        menu.Append(CID_OPEN_FILE, "Open entities");
+        menu.Append(CID_REINJECT_FILE, "Reinject entities in resources");
     }
+
+    menu.Append(CID_IMPORT_FILES, "Export to file");
+    menu.Append(CID_EXPORT_FILES, "Import from file");
 
     wxDataViewEvent* EventCopy = new wxDataViewEvent(event);
     menu.Connect(wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(MyFrame::OnContextMenuSelect), EventCopy, this);
@@ -2513,15 +2695,23 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
         MemoryStream memstream(DecompressedData, DecompressedSize);
         m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
         if (m_Document.HasParseError() != false) {
-            wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu) _3", (long long)m_Document.GetErrorOffset());
-            wxMessageBox(error, _("Error"), wxOK | wxICON_ERROR, this);
+            wxString error = wxString::Format("Error parsing the entities definition file. (Syntax error at offset: %llu)\n Would you like to export the uncompressed data to a file?", (long long)m_Document.GetErrorOffset());
+            int DialogResult = wxMessageBox(error, _("Error"), wxYES | wxNO | wxICON_ERROR, this);
             Error = 1;
-#if 0
-            FILE *FilePtr;
-            fopen_s(&FilePtr, "C:\\Programming\\EntityHero\\wxGUI\\OutputTest.txt", "wb");
-            fwrite(DecompressedData, 1, DecompressedSize, FilePtr);
-            fclose(FilePtr);
-#endif
+
+            if (DialogResult == wxYES) {
+                wxFileDialog
+                    saveFileDialog(this, _("Save .entities file"), "", "",
+                        "Entities files (*.entities)|*.entities", wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+
+                if (saveFileDialog.ShowModal() != wxID_CANCEL) {
+                    FILE *FilePtr;
+                    fopen_s(&FilePtr, saveFileDialog.GetPath().c_str().AsChar(), "wb");
+                    fwrite(DecompressedData, 1, DecompressedSize, FilePtr);
+                    fclose(FilePtr);
+                }
+            }
+
         } else {
             m_CurrentlyLoadedFileCompressed = true;
         }
@@ -2620,6 +2810,10 @@ void MyFrame::PushCommand(CommandPattern Command)
 
 void MyFrame::Undo(wxCommandEvent& event)
 {
+    if (m_edit->HasFocus()) {
+        m_edit->Undo();
+    }
+
     if (m_UndoStack.empty() != false) {
         return;
     }
@@ -2633,6 +2827,10 @@ void MyFrame::Undo(wxCommandEvent& event)
 
 void MyFrame::Redo(wxCommandEvent& event)
 {
+    if (m_edit->HasFocus()) {
+        m_edit->Redo();
+    }
+
     if (m_RedoStack.empty() != false) {
         return;
     }
@@ -3291,11 +3489,23 @@ void MyFrame::Copy(wxCommandEvent& event)
 
 void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 {
+    if (m_edit->HasFocus()) {
+        m_edit->Copy();
+        return;
+    }
+
     if (Node == nullptr) {
         return;
     }
 
-    EntityTreeModelNode* Parent = Node->GetParent();
+    EntityTreeModelNode* Root = (EntityTreeModelNode*)m_entity_view_model->GetRoot().GetID();
+    EntityTreeModelNode* Parent;
+    if (Node == Root) {
+        Parent = Root;
+    } else {
+        Parent = Node->GetParent();
+    }
+
     size_t Index = Parent->GetChildIndex(Node);
     if (Parent->IsArray() != false) {
         Index += 1;
@@ -3329,6 +3539,11 @@ void MyFrame::CopyToClipBoard(EntityTreeModelNode *Node)
 
 void MyFrame::Paste(wxCommandEvent& event)
 {
+    if (m_edit->HasFocus()) {
+        m_edit->Paste();
+        return;
+    }
+
     EntityTreeModelNode *PasteNode = (EntityTreeModelNode*)m_ctrl[0]->GetSelection().GetID();
     if (PasteNode == nullptr) {
         wxMessageBox("Please select the node to paste into.", "No selection");
@@ -3364,8 +3579,15 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
         return;
     }
 
-    // Insert node.
     GroupedCommand Group = make_shared<_GroupedCommand>();
+    InsertNodeFromDocument(ParentNode, PasteData, Group);
+    Group->Execute();
+    PushCommand(Group);
+}
+
+bool MyFrame::InsertNodeFromDocument(EntityTreeModelNode* ParentNode, rapidjson::Value &PasteData, GroupedCommand &Group)
+{
+    // Insert node.
     for (size_t i = 0; i < PasteData.MemberCount(); i += 1) {
         auto Member = PasteData.MemberBegin() + i;
         EntityTreeModelNode* Node = nullptr;
@@ -3392,7 +3614,7 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
             EnumChildren(Node, SubMember->value, m_Document);
             if (ValidateTree(Node, SubMember->name, SubMember->value) == false) {
                 wxMessageBox("Subtree validation failed", "The pasted item cannot be put here.");
-                return;
+                return false;
             }
             EntityTreeModelNode* ItemNode = ParentNode;
             size_t Index = ItemNode->GetParent()->GetChildIndex(ItemNode);
@@ -3411,8 +3633,7 @@ void MyFrame::InsertFromClipBoard(EntityTreeModelNode* ParentNode)
         }
     }
 
-    Group->Execute();
-    PushCommand(Group);
+    return true;
 }
 
 void MyFrame::ProgressCancel(wxCommandEvent& event)
@@ -3555,5 +3776,50 @@ bool MyFrame::SetSpawnPosition(EntityTreeModelNode* Node, float x, float y, floa
         PushCommand(Group);
     }
 
+    return true;
+}
+
+bool MyFrame::CommitChanges(void)
+{
+    wxString LineEndNormalization(m_edit->GetText());
+    LineEndNormalization.Replace("\r\n", "\n");
+
+    bool Unwrap = false;
+    if (LineEndNormalization.Freq('\n') <= 1) {
+        LineEndNormalization = "{\n" + LineEndNormalization + "\n}";
+        Unwrap = true;
+    }
+
+    // Parse data.
+    rapidjson::MemoryStream memstream(LineEndNormalization.c_str().AsChar(), LineEndNormalization.Len());
+    rapidjson::Document TextData;
+    rapidjson::ParseResult Result = TextData.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
+    if (TextData.HasParseError() != false) {
+        return false;
+    }
+
+    EntityTreeModelNode *Node = m_edit->GetCurrentNode();
+    EntityTreeModelNode *ParentNode = Node->GetParent();
+    GroupedCommand Group = make_shared<_GroupedCommand>();
+    // If parsed data has no errors, delete the original node.
+    wxDataViewItem NodeDataView = wxDataViewItem(Node);
+    CommandPattern Delete = make_shared<DeleteSubTreeCommand>(NodeDataView, m_entity_view_model, m_Document);
+    Group->PushCommand(Delete);
+
+    // Add the new node.
+    bool Success = false;
+    if (Unwrap != false) {
+        Success = InsertNodeFromDocument(Node, TextData.MemberBegin()->value, Group);
+
+    } else {
+        Success = InsertNodeFromDocument(Node, TextData, Group);
+    }
+
+    if (Success == false) {
+        return false;
+    }
+
+    Group->Execute();
+    PushCommand(Group);
     return true;
 }

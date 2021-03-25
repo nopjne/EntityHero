@@ -16,16 +16,20 @@ using namespace std;
 int gArrayCount = 0;
 int main(void)
 {
-    ifstream InputStream("../chrispy.txt");
+    ifstream InputStream("../uncompressed.entities");
     if (InputStream.good() == false) {
         return 0;
     }
 
     rapidjson::IStreamWrapper InStream(InputStream);
     Document document;
-    document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(InStream);
+    document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag | rapidjson::kIgnoreWhiteSpacing>(InStream);
     if (document.HasParseError() != false) {
-        printf("bad input file\n");
+        char string[1024];
+        sprintf_s(string, "bad input file %zu\n", document.GetErrorOffset());
+        OutputDebugStringA(string);
+        printf(string);
+        
     }
 
     ofstream OfStream("../chrispy_out.txt", std::ofstream::binary);

@@ -110,10 +110,16 @@ void ToStringValue(const char *Input, size_t Length, rapidjson::Value &Value, ra
     } else if (strcmp(Input, "true") == 0) {
         Value.SetBool(true);
         ForcedType = rapidjson::Type::kTrueType;
-    } else if (wxString(Input).IsNumber()) {
+    }
+    
+    if (wxString(Input).IsNumber() && (ForcedType != rapidjson::Type::kStringType)) {
         if (wxString(Input).Index('.') != wxString::npos) {
             Value.SetDouble(0);
         } else {
+            Value.SetInt(0);
+        }
+
+        if (Input[0] == 0) {
             Value.SetInt(0);
         }
 
@@ -601,8 +607,9 @@ size_t EntityTreeModel::CountByName(wxString& Text, bool Exact, size_t MaxDepth)
 {
     size_t Counter = 0;
     EntityTreeModelNode* Result = nullptr;
+    size_t FindIndex = size_t(-1);
     do {
-        Result = m_root->FindByName(0, MaxDepth, Text, Index, Counter, Exact, true);
+        Result = m_root->FindByName(0, MaxDepth, Text, FindIndex, Counter, Exact, true);
     } while (Result != nullptr);
 
     return Counter;
@@ -655,8 +662,8 @@ EntityTreeModelNode* EntityTreeModel::Duplicate(wxDataViewItem* Item, rapidjson:
     EnumChildren(NewNode, valueCopy, Document);
     Parent->Insert(NewNode, ChildIndex + 1, Document, INSERT_TYPE_AUTO);
     ItemAdded(GetParent(*Item), wxDataViewItem(NewNode));
-    RebuildReferences(node->GetParent(), *(node->GetParent()->m_keyRef), *(node->GetParent()->m_valueRef), 1);
-    RebuildReferences(NewNode, *(NewNode->m_keyRef), *(NewNode->m_valueRef), 0);
+    RebuildReferences(node->GetParent(), *(node->GetParent()->m_keyRef), *(node->GetParent()->m_valueRef), 1, 0);
+    RebuildReferences(NewNode, *(NewNode->m_keyRef), *(NewNode->m_valueRef), 0, 0);
     return NewNode;
 }
 
@@ -678,7 +685,7 @@ wxString EntityTreeModel::GetValue( const wxDataViewItem &item ) const
     return node->m_value;
 }
 
-void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Value &Key, rapidjson::Value& Value, size_t MaxDepth, size_t CurrentDepth)
+void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Value &Key, rapidjson::Value& Value, size_t MaxDepth, size_t CurrentDepth, bool AllowRepurpose)
 {
     for (int tab = 0; tab < CurrentDepth; tab += 1) {
         OutputDebugStringA("    ");
@@ -692,13 +699,14 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
     }
 
     if (Node->m_valueRef->IsObject()) {
-        OutputDebugStringA("Object ");
+        OutputDebugStringA("-Object ");
     }
 
     OutputDebugStringA("\n");
 
+    // Valid during a delete, because objects just get moved.
     bool isObject = Node->m_valueRef->IsObject();
-    assert(Node->IsContainer() == Node->m_valueRef->IsObject());
+    assert((Node->IsContainer() == Node->m_valueRef->IsObject()) || (AllowRepurpose != false));
 
     isObject = Value.IsObject();
     assert(Node->IsContainer() == Value.IsObject());
@@ -744,12 +752,12 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
                     auto ArrayObject = JsonMember->value.GetObject();
                     auto NextMember = Member + 1;
                     for (auto ArrayMember = ArrayObject.MemberBegin(); ArrayMember != ArrayObject.MemberEnd(); ArrayMember++) {
-                        RebuildReferences(*Member, ArrayMember->name, ArrayMember->value, MaxDepth, CurrentDepth + 1);
+                        RebuildReferences(*Member, ArrayMember->name, ArrayMember->value, MaxDepth, CurrentDepth + 1, AllowRepurpose);
                         Member++;
                     }
 
                 } else {
-                    RebuildReferences(*Member, JsonMember->name, JsonMember->value, MaxDepth, CurrentDepth + 1);
+                    RebuildReferences(*Member, JsonMember->name, JsonMember->value, MaxDepth, CurrentDepth + 1, AllowRepurpose);
                     (**Member).m_key = itemstr;
                     Member++;
                 }
@@ -761,7 +769,7 @@ void EntityTreeModel::RebuildReferences(EntityTreeModelNode *Node, rapidjson::Va
                 continue;
             }
 
-            RebuildReferences(*Member, JsonMember->name, JsonMember->value, MaxDepth, CurrentDepth + 1);
+            RebuildReferences(*Member, JsonMember->name, JsonMember->value, MaxDepth, CurrentDepth + 1, AllowRepurpose);
             Member++;
         }
 
@@ -810,7 +818,7 @@ void EntityTreeModel::Delete( const wxDataViewItem &item )
     }
 
     assert(Deleted != false);
-    RebuildReferences(node->GetParent(), *(node->GetParent()->m_keyRef), *(node->GetParent()->m_valueRef), 1);
+    RebuildReferences(node->GetParent(), *(node->GetParent()->m_keyRef), *(node->GetParent()->m_valueRef), 1, 0, true);
 
     // notify control
     ItemDeleted( parent, item );
@@ -834,9 +842,9 @@ int EntityTreeModel::Insert(wxDataViewItem* ParentItem, size_t Index, wxDataView
 #endif
     ParentNode->Insert(Node, Index, Document, InsertType);
     ItemAdded(*ParentItem, wxDataViewItem(Node));
-    RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1);
+    RebuildReferences(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef), 1, 0, true);
     //ValidateTree(ParentNode, *(ParentNode->m_keyRef), *(ParentNode->m_valueRef));
-    RebuildReferences(Node, *(Node->m_keyRef), *(Node->m_valueRef), 0);
+    RebuildReferences(Node, *(Node->m_keyRef), *(Node->m_valueRef), 0, 0, true);
 #ifdef _DEBUG
     ValidateTree(Node, *(Node->m_keyRef), *(Node->m_valueRef));
 #endif
@@ -963,6 +971,8 @@ bool EntityTreeModel::SetValue( const wxVariant &variant,
                 ForcedType = rapidjson::Type::kNumberType;
             } else if (node->m_key == "int") {
                 ForcedType = rapidjson::Type::kNumberType;
+            } else if (node->m_key == "string") {
+                ForcedType = rapidjson::Type::kStringType;
             }
 
             ToStringValue(node->m_value.c_str().AsChar(), node->m_value.Len(), *(node->m_valueRef), ForcedType);

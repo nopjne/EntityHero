@@ -200,7 +200,7 @@ public:
     void Delete( const wxDataViewItem &item );
 
     int Insert(wxDataViewItem* ParentItem, size_t Index, wxDataViewItem* Item, rapidjson::Document& Document, INSERT_TYPE InsertType);
-    void RebuildReferences(EntityTreeModelNode* Node, rapidjson::Value& Key, rapidjson::Value& Value, size_t MaxDepth = 0, size_t CurrentDepth = 0);
+    void RebuildReferences(EntityTreeModelNode* Node, rapidjson::Value& Key, rapidjson::Value& Value, size_t MaxDepth = 0, size_t CurrentDepth = 0, bool AllowRepurspose = false);
     size_t CountByName(wxString& Text, bool Exact, size_t MaxDepth);
 
     wxDataViewItem GetRoot() const
