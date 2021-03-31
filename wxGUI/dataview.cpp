@@ -1963,7 +1963,7 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             // Ask user where to output to.
             wxFileDialog
                 saveFileDialog(this, _("Save location"), "", "",
-                    "Entities files (*.entities)|*.entities", wxFD_SAVE | wxFD_MULTIPLE | wxFD_OVERWRITE_PROMPT);
+                    "Entities files (*.entities)|*.entities", wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
 
             if (saveFileDialog.ShowModal() == wxID_CANCEL) {
                 return;
@@ -1974,25 +1974,66 @@ void MyFrame::OnContextMenuSelect(wxCommandEvent& event)
             m_ctrl[Page_ResourcesView]->GetSelections(SelectionArray);
             std::vector<char> BufferVector;
             for (auto ArrayItem : SelectionArray) {
-                FileTreeModelNode* Node = (FileTreeModelNode*)Item.GetID();
+                FileTreeModelNode* Node = (FileTreeModelNode*)ArrayItem.GetID();
                 auto FileInfo = Node->GetIDFile();
 
                 // Get the file path and append the part number.
-                wxFileName FilePath = GetFileNameFromInfo(saveFileDialog.GetPath(), wxString(FileInfo.FileName));
+                wxFileName FilePath;
+                if (SelectionArray.size() > 1) {
+                    wxFileName SaveDialogPath = saveFileDialog.GetPath();
+                    FilePath = GetFileNameFromInfo(SaveDialogPath.GetPath(), wxString(FileInfo.FileName));
+                } else {
+                    FilePath = saveFileDialog.GetPath();
+                }
+
                 FILE *FileHandle = nullptr;
                 wxString StringFileName;
-                FilePath.FileName(StringFileName);
+                StringFileName = FilePath.GetLongPath();
                 int Result = fopen_s(&FileHandle, StringFileName, "wb");
                 if ((Result == 0) && (FileHandle != nullptr)) {
+                    bool Decompress = false;
+                    // Ask if user wants to uncompress the file when saving.
+                    if (FileInfo.FileName.rfind(".entities") != string::npos) {
+                        // Messagebox
+                        int Result = wxMessageBox("Would you like to decompress?", "Compressed entities", wxYES_NO);
+                        Decompress = (Result == wxYES);
+                    }
+
+                    char* Buffer = nullptr;
                     // Allocate a buffer for the raw file.
                     size_t Size = FileInfo.SizeUncompressed;
                     BufferVector.resize(Size);
-                    char *Buffer = &(BufferVector[0]);
+                    Buffer = &(BufferVector[0]);
+
                     // Read the file.
-                    IDCLReader ResourceReader;
-                    ResourceReader.ReadFile(FileInfo, Buffer, Size);
+                    m_ResourceReader.ReadFile(FileInfo, Buffer, Size);
+                    if (Decompress != false) {
+                        class OneShotReadBuf : public std::streambuf
+                        {
+                        public:
+                            OneShotReadBuf(char* s, std::size_t n) : streambuf()
+                            {
+                                setg(s, s, s + n);
+                            }
+                        };
+
+                        OneShotReadBuf StreamBuff(Buffer, FileInfo.Size);
+                        std::istream Stream(&StreamBuff);
+
+                        // Oodle decompress.
+                        char* DecompressedData = nullptr;
+                        size_t DecompressedSize;
+                        int Result = DecompressEntities(&Stream, &DecompressedData, DecompressedSize, FileInfo.Size);
+                        Size = DecompressedSize;
+                        Buffer = DecompressedData;
+                    }
+
                     fwrite(Buffer, 1, Size, FileHandle);
                     fclose(FileHandle);
+
+                    if (Decompress != false) {
+                        delete Buffer;
+                    }
                 }
             }
         }
@@ -2303,8 +2344,8 @@ void MyFrame::OnContextFileMenu(wxDataViewEvent& event)
         menu.Append(CID_REINJECT_FILE, "Reinject entities in resources");
     }
 
-    menu.Append(CID_IMPORT_FILES, "Export to file");
-    menu.Append(CID_EXPORT_FILES, "Import from file");
+    menu.Append(CID_EXPORT_FILES, "Export to file");
+    menu.Append(CID_IMPORT_FILES, "Import from file");
 
     wxDataViewEvent* EventCopy = new wxDataViewEvent(event);
     menu.Connect(wxEVT_COMMAND_MENU_SELECTED, wxCommandEventHandler(MyFrame::OnContextMenuSelect), EventCopy, this);
