@@ -1988,7 +1988,7 @@ public:
                 for (ConstMemberIterator m = MemberBegin(); m != MemberEnd(); ++m) {
                     //RAPIDJSON_ASSERT(m->name.IsString()); // User may change the type of name by MemberIterator.
                     if (m->name.IsString() != false) {
-                        if (RAPIDJSON_UNLIKELY(!handler.Key(m->name.GetString(), m->name.GetStringLength(), m->name.data_.f.flags, (m->name.data_.f.flags & kCopyFlag) != 0)))
+                        if (RAPIDJSON_UNLIKELY(!handler.Key(m->name.GetString(), m->name.GetStringLength(), m->name.data_.f.flags, (m->name.data_.f.flags & kCopyFlag) != 0, m->value.data_.f.flags)))
                             return false;
 
                         if (RAPIDJSON_UNLIKELY(!m->value.Accept(handler, m->name.data_.f.flags)))
