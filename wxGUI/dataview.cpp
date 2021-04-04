@@ -2198,6 +2198,9 @@ void MyFrame::OpenEntitiesFromResources(IDCT_FILE &FileInfo)
         m_Document.ParseStream<rapidjson::kParseCommentsFlag | rapidjson::kParseTrailingCommasFlag | rapidjson::kParseNanAndInfFlag>(memstream);
         if (m_Document.HasParseError() != false) {
             wxMessageBox(wxString::Format("Error parsing the entities definition file. (Syntax error offset: %llu).", m_Document.GetErrorOffset()), _("Error"), wxOK, this);
+            // Show the stream in the edit box and go to the parse error.
+            m_edit->SetTextAndHighlight(wxString(DecompressedData), nullptr);
+            m_edit->SetViewWhiteSpace(wxSTC_WS_VISIBLEALWAYS);
         }
 
     } else {
@@ -2753,6 +2756,10 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
                 }
             }
 
+            // Show the stream in the edit box and go to the parse error.
+            m_edit->SetTextAndHighlight(wxString(DecompressedData), nullptr);
+            m_edit->SetViewWhiteSpace(wxSTC_WS_VISIBLEALWAYS);
+
         } else {
             m_CurrentlyLoadedFileCompressed = true;
         }
@@ -2769,6 +2776,10 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
         if (m_Document.HasParseError() != false) {
             wxMessageBox(wxString::Format("Error parsing the entities definition file. (Could not decompress or parse).\n%s\n (Syntax error at offset: %llu)", FilePath, (long long)m_Document.GetErrorOffset()), _("Error"), wxOK, this);
             Error = 1;
+
+            // Show the stream in the edit box and go to the parse error.
+            m_edit->SetTextAndHighlight(wxString(DecompressedData), nullptr);
+            m_edit->SetViewWhiteSpace(wxSTC_WS_VISIBLEALWAYS);
 
         } else {
             m_CurrentlyLoadedFileCompressed = false;
@@ -2836,6 +2847,10 @@ void MyFrame::ImportFile(wxCommandEvent& event)
     if (m_Document.HasParseError() != false) {
         wxMessageBox(wxString::Format("Error parsing the entities syntax. (Syntax error offset : % llu).", m_Document.GetErrorOffset()), _("Error"), wxOK, this);
         Error = true;
+
+        // Show the stream in the edit box and go to the parse error.
+        //m_edit->SetTextAndHighlight(wxString(DecompressedData), nullptr);
+        //m_edit->SetViewWhiteSpace(wxSTC_WS_VISIBLEALWAYS);
     }
 
     ConstructTreeView();

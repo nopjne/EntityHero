@@ -135,6 +135,7 @@ public:
 
     template<typename T>
     T* Pop(size_t count) {
+        int xx = sizeof(T);
         RAPIDJSON_ASSERT(GetSize() >= count * sizeof(T));
         stackTop_ -= count * sizeof(T);
         return reinterpret_cast<T*>(stackTop_);

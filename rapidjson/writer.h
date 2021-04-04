@@ -418,14 +418,15 @@ protected:
         return true;
     }
 
-    bool WriteString(const Ch* str, SizeType length, int Flags, bool Key = false)  {
+    bool WriteString(const Ch* str, SizeType length, int Flags, bool Key = false, int ValueFlags = 0)  {
         static const typename OutputStream::Ch hexDigits[16] = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F' };
         static const char escape[256] = {
 #define Z16 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
             //0    1    2    3    4    5    6    7    8    9    A    B    C    D    E    F
             'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'b', 't', 'n', 'u', 'f', 'r', 'u', 'u', // 00
             'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', 'u', // 10
-              0,   0, '"',   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 20
+              //0,   0, '"',   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 20
+              0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0, // 20
             Z16, Z16,                                                                       // 30~4F
               0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,   0,'\\',   0,   0,   0, // 50
             Z16, Z16, Z16, Z16, Z16, Z16, Z16, Z16, Z16, Z16                                // 60~FF
@@ -437,7 +438,7 @@ protected:
         else
             PutReserve(*os_, 2 + length * 12);  // "\uxxxx\uyyyy..."
 
-        if (Key == false) {
+        if ((Key == false) && ((Flags & 0x8000) == 0)) {
             PutUnsafe(*os_, '\"');
         }
 
@@ -485,7 +486,7 @@ protected:
                     PutUnsafe(*os_, hexDigits[(trail >> 12) & 15]);
                     PutUnsafe(*os_, hexDigits[(trail >>  8) & 15]);
                     PutUnsafe(*os_, hexDigits[(trail >>  4) & 15]);
-                    PutUnsafe(*os_, hexDigits[(trail      ) & 15]);                    
+                    PutUnsafe(*os_, hexDigits[(trail      ) & 15]);
                 }
             }
             else if ((sizeof(Ch) == 1 || static_cast<unsigned>(c) < 256) && RAPIDJSON_UNLIKELY(escape[static_cast<unsigned char>(c)]))  {
@@ -513,7 +514,8 @@ protected:
             (memcmp(stringBuffer, "____layer_sentinel____\0", sizeof("____layer_sentinel____")) == 0) ||
             (memcmp(stringBuffer, "layers\0", sizeof("layers")) == 0) ||
             (memcmp(stringBuffer, "Version\0", sizeof("Version")) == 0) ||
-            (memcmp(stringBuffer, "HierarchyVersion\0", sizeof("HierarchyVersion")) == 0)
+            (memcmp(stringBuffer, "HierarchyVersion\0", sizeof("HierarchyVersion")) == 0) ||
+            (memcmp(stringBuffer, "properties\0", sizeof("properties\0")) == 0)
             ) {
 
             specialKeyword = true;
@@ -539,8 +541,10 @@ protected:
             PostPretty();
 
         } else if (specialKeyword == false) {
-            PutUnsafe(*os_, ' ');
-            PutUnsafe(*os_, '=');
+            if ((ValueFlags & 0x8000) == 0) {
+                PutUnsafe(*os_, ' ');
+                PutUnsafe(*os_, '=');
+            }
         }
 
         return true;

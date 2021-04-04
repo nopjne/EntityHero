@@ -911,34 +911,52 @@ private:
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
             Ch PeekCh = is.Peek();
-            if (PeekCh != '\"') {
+            bool ValueExpected = false;
+            if (PeekCh != '{') {
                 ParseValueString<parseFlags>(is, handler, true, &IsArray);
                 RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
                 SkipWhitespaceAndComments<parseFlags>(is);
                 RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
-                //handler.stack_.Peek<>();
+
+                ValueExpected = true;
             }
             else {
-                char str[] = "____layer_sentinel____";
-                handler.Key(str, sizeof(str), true);
+                Consume(is, '{');
+            }
+
+            bool equals = Consume(is, '=');
+            if (equals != false) {
+                // In case an equals sign was observed.
+                SkipWhitespaceAndComments<parseFlags>(is);
+                RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+
+                ParseValue<parseFlags>(is, handler);
+                RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+
+            } else {
+                SkipWhitespaceAndComments<parseFlags>(is);
+                RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+
+                bool objectstart = is.Peek() != '{';
+                if (objectstart == false) {
+                    // No equals sign check or object open, parse the extra name.
+                    ParseValue<parseFlags>(is, handler);
+                }
+            }
+
+            SkipWhitespaceAndComments<parseFlags>(is);
+            RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
+
+            if ((ValueExpected != false) && (equals == false) && (is.Peek() == '\n')) {
+                char str[] = "\0";
+                handler.String(str, sizeof(str), true);
                 handler.SetFlags(true, 0x8000);
             }
 
-            Consume(is, '=');
-
-            SkipWhitespaceAndComments<parseFlags>(is);
-            RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
-
-            ParseValue<parseFlags>(is, handler);
-            RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
-
-            SkipWhitespaceAndComments<parseFlags>(is);
-            RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
-
             ++memberCount;
 
-            char peeeek= is.Peek();
+            char peeeek = is.Peek();
             switch (is.Peek()) {
                 case ';':
                 case '\n':
@@ -1326,6 +1344,7 @@ private:
         };
 #undef Z16
         //!@endcond
+        //!                         properties
         char entitydefbuffer[10] = "         ";
         int index = 0;
         for (;;) {
@@ -1397,10 +1416,13 @@ private:
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringInvalidEncoding, offset);
             }
             else if (RAPIDJSON_UNLIKELY(static_cast<unsigned>(c) < 0x20)) { // RFC 4627: unescaped = %x20-21 / %x23-5B / %x5D-10FFFF
-                if (c == '\0')
+                if (c == '\n') {
+                    return;
+                } else if (c == '\0') {
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringMissQuotationMark, is.Tell());
-                else
+                } else {
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringInvalidEncoding, is.Tell());
+                    }
             }
             else {
                 size_t offset = is.Tell();

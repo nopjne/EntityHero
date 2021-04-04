@@ -16,7 +16,8 @@ using namespace std;
 int gArrayCount = 0;
 int main(void)
 {
-    ifstream InputStream("../uncompressed.entities");
+    //ifstream InputStream("../uncompressed.entities");
+    ifstream InputStream("../output_edited.txt");
     if (InputStream.good() == false) {
         return 0;
     }

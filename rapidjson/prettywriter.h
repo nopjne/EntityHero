@@ -107,12 +107,16 @@ public:
         return Base::WriteString(str, length, 0);
     }
 
-    bool String(const Ch* str, SizeType length, int Flags, bool copy = false, bool key = false) {
+    bool String(const Ch* str, SizeType length, int Flags, bool copy = false, bool key = false, int ValueFlags = 0) {
         RAPIDJSON_ASSERT(str != 0);
         (void)copy;
         bool PreventSpace = (Flags & 0x20000);
+        if ((Flags & 0x8000) != 0) {
+            PreventSpace |= true;
+        }
+
         PrettyPrefix(kStringType, PreventSpace);
-        bool res =  Base::WriteString(str, length, Flags, key);
+        bool res = Base::WriteString(str, length, Flags, key, ValueFlags);
         return res;
     }
 
@@ -140,7 +144,7 @@ public:
         return result;
     }
 
-    bool Key(const Ch* str, SizeType length, int Flags, bool copy = false) { return String(str, length, Flags, copy, true); }
+    bool Key(const Ch* str, SizeType length, int Flags, bool copy = false, int ValueFlags = 0) { return String(str, length, Flags, copy, true, ValueFlags); }
 
 #if RAPIDJSON_HAS_STDSTRING
     bool Key(const std::basic_string<Ch>& str) {
