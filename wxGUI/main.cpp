@@ -30,7 +30,6 @@ int main(void)
         sprintf_s(string, "bad input file %zu\n", document.GetErrorOffset());
         OutputDebugStringA(string);
         printf(string);
-        
     }
 
     ofstream OfStream("../chrispy_out.txt", std::ofstream::binary);

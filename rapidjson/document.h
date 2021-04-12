@@ -1954,6 +1954,12 @@ public:
                 DownFlags = 0x20000;
             }
 
+            if (MemberCount() == 0) {
+                if (RAPIDJSON_UNLIKELY(!handler.StartObject(0 | DownFlags)))
+                    return false;
+                return handler.EndObject(DownFlags, data_.o.size);
+            }
+
             if (RAPIDJSON_UNLIKELY(!handler.StartObject(member->name.data_.f.flags | DownFlags)))
                 return false;
 

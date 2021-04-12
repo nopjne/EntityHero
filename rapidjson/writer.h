@@ -522,11 +522,21 @@ protected:
             hideStatementEnd = true;
             if (memcmp(stringBuffer, "entityDef ", sizeof("entityDef")) == 0) {
                 hideStatementEnd = false;
+                if ((level_stack_.GetSize() > (2 * sizeof(void*)))) {
+                    specialKeyword = false;
+                }
             }
 
             if (memcmp(stringBuffer, "entity\0", sizeof("entity\0")) == 0) {
                 hideStatementEnd = false;
                 if ((level_stack_.GetSize() > (2 * sizeof(void*)))) {
+                    specialKeyword = false;
+                }
+            }
+
+            if ((memcmp(stringBuffer, "properties\0", sizeof("properties\0")) == 0)) {
+                if ((level_stack_.GetSize() > (2 * sizeof(void*)))) {
+                    hideStatementEnd = false;
                     specialKeyword = false;
                 }
             }

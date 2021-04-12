@@ -61,7 +61,7 @@
 using namespace rapidjson;
 using namespace std;
 
-wxString gVersion = "0.8";
+wxString gVersion = "0.8.1";
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -1005,9 +1005,10 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     firstPanelSz->Add(navigationSizer, 0, wxGROW | wxALL, 5);
 
     //firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW | wxALL, 5);
+    sizerCurrent->RecalcSizes();
     firstPanelSz->Add(m_Splitter, 1, wxGROW | wxALL, 5);
     firstPanelSz->Add(m_MHInterfaceStatus, 0, wxGROW | wxALL, 5);
-    firstPanelSz->Add(sizerCurrent);
+    firstPanelSz->Add(sizerCurrent, 0, wxGROW | wxALL, 5);
     firstPanel->SetSizerAndFit(firstPanelSz);
     m_notebook->AddPage(firstPanel, "EntityView");
 
@@ -2766,11 +2767,12 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
 
     } else {
         ifstream InputStream(FilePath.c_str().AsChar());
+        rapidjson::ParseResult Result;
         if (InputStream.good() != false) {
             rapidjson::IStreamWrapper InStream(InputStream);
-            m_Document.ParseStream<rapidjson::kParseCommentsFlag |
-                                   rapidjson::kParseTrailingCommasFlag |
-                                   rapidjson::kParseNanAndInfFlag>(InStream);
+            Result = m_Document.ParseStream<rapidjson::kParseCommentsFlag |
+                                            rapidjson::kParseTrailingCommasFlag |
+                                            rapidjson::kParseNanAndInfFlag>(InStream);
         }
 
         if (m_Document.HasParseError() != false) {
@@ -2778,8 +2780,16 @@ bool MyFrame::OpenFileInternal(wxString FilePath)
             Error = 1;
 
             // Show the stream in the edit box and go to the parse error.
-            m_edit->SetTextAndHighlight(wxString(DecompressedData), nullptr);
+            ifstream InputStreamError(FilePath.c_str().AsChar());
+            std::vector<char> TempData;
+            assert(InputStreamError.good() != false);
+            TempData.resize(Size);
+            char *Output = &(TempData[0]);
+
+            InputStreamError.read(Output, Size);
+            m_edit->SetTextAndHighlight(wxString(Output), nullptr);
             m_edit->SetViewWhiteSpace(wxSTC_WS_VISIBLEALWAYS);
+            m_edit->SetParseErrorHelper(m_edit->GetText(), Result.Offset());
 
         } else {
             m_CurrentlyLoadedFileCompressed = false;
