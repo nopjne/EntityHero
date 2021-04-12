@@ -172,6 +172,21 @@ void Edit::MySetFocus(wxFocusEvent& Event)
     Event.Skip();
 }
 
+void Edit::SetParseErrorHelper(wxString String, size_t Offset)
+{
+    size_t CharNr = 0;
+    size_t LineNumber = FreqWithLimit(String, Offset, '\n', CharNr);
+
+    // Position some text under the parsing error.
+    wxString ErrorString;
+    ErrorString.resize(CharNr + 6, L' ');
+    ErrorString += "^ Syntax Error";
+    AnnotationSetStyle(LineNumber, ANNOTATION_STYLE);
+    AnnotationSetText(LineNumber, ErrorString);
+    AnnotationSetVisible(wxSTC_ANNOTATION_STANDARD);
+}
+
+
 void Edit::MyHandleKillFocus(wxFocusEvent& Event)
 {
     if (Modified() != false) {
@@ -190,16 +205,7 @@ void Edit::MyHandleKillFocus(wxFocusEvent& Event)
             wxString error = wxString::Format("Syntax error at offset: %llu Line:\n Do you want to discard your changes?", (long long)TextData.GetErrorOffset());
             int Discard = wxMessageBox(error, _("Error"), wxYES_NO | wxICON_ERROR, this);
 
-            size_t CharNr = 0;
-            size_t LineNumber = FreqWithLimit(LineEndNormalization, Result.Offset(), '\n', CharNr);
-
-            // Position some text under the parsing error.
-            wxString ErrorString;
-            ErrorString.resize(CharNr + 6, L' ');
-            ErrorString += "^ Syntax Error";
-            AnnotationSetStyle(LineNumber, ANNOTATION_STYLE);
-            AnnotationSetText(LineNumber, ErrorString);
-            AnnotationSetVisible(wxSTC_ANNOTATION_STANDARD);
+            SetParseErrorHelper(LineEndNormalization, Result.Offset());
             if (Discard == wxNO) {
                 SetFocus();
             } else {

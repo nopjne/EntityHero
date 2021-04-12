@@ -131,6 +131,7 @@ public:
     void MySetFocus(wxFocusEvent& Event);
     void MyHandleKillFocus(wxFocusEvent& Event);
     EntityTreeModelNode* GetCurrentNode() { return m_CurrentNode; }
+    void SetParseErrorHelper(wxString String, size_t Offset);
     
 private:
     // file

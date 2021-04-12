@@ -893,7 +893,7 @@ private:
         if (RAPIDJSON_UNLIKELY(!handler.StartObject()))
             RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
 
-        SkipWhitespaceAndComments<parseFlags>(is);
+        SkipWhitespaceNewLineAndComments<parseFlags>(is);
         RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
         if (Consume(is, '}')) {
@@ -901,7 +901,7 @@ private:
                 RAPIDJSON_PARSE_ERROR(kParseErrorTermination, is.Tell());
 
             void* NewLocation = handler.stack_.End<void>();
-            assert(Location == NewLocation);
+            //assert(Location == NewLocation);
             return;
         }
 
@@ -912,7 +912,7 @@ private:
 
             Ch PeekCh = is.Peek();
             bool ValueExpected = false;
-            if (PeekCh != '{') {
+            if ((PeekCh != '{') && (PeekCh != '}')) {
                 ParseValueString<parseFlags>(is, handler, true, &IsArray);
                 RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
@@ -938,24 +938,26 @@ private:
                 SkipWhitespaceAndComments<parseFlags>(is);
                 RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
-                bool objectstart = is.Peek() != '{';
+                char peekit = is.Peek();
+                bool objectstart = (is.Peek() != '{');
                 if (objectstart == false) {
                     // No equals sign check or object open, parse the extra name.
-                    ParseValue<parseFlags>(is, handler);
+                    if (is.Peek() != '}') {
+                        ParseValue<parseFlags>(is, handler);
+                    }
                 }
             }
 
             SkipWhitespaceAndComments<parseFlags>(is);
             RAPIDJSON_PARSE_ERROR_EARLY_RETURN_VOID;
 
-            if ((ValueExpected != false) && (equals == false) && (is.Peek() == '\n')) {
+            if ((ValueExpected != false) && (equals == false) && (is.Peek() == '\n') && (PeekCh != '}')) {
                 char str[] = "\0";
                 handler.String(str, sizeof(str), true);
                 handler.SetFlags(true, 0x8000);
             }
 
             ++memberCount;
-
             char peeeek = is.Peek();
             switch (is.Peek()) {
                 case ';':
@@ -1343,21 +1345,37 @@ private:
             Z16, Z16, Z16, Z16, Z16, Z16, Z16, Z16
         };
 #undef Z16
+#if DEBUG
+        char entitydefbuffertrack[4096];
+        entitydefbuffertrack[0] = 0;
+        int indtrack = 0;
+#endif
+
         //!@endcond
         //!                         properties
         char entitydefbuffer[10] = "         ";
         int index = 0;
+        size_t currentlen = 0;
         for (;;) {
             // Scan and copy string before "\\\"" or < 0x20. This is an optional optimzation.
             if (!(parseFlags & kParseValidateEncodingFlag))
                 ScanCopyUnescapedString(is, os);
 
             Ch c = is.Peek();
-            //if (index < sizeof(entitydefbuffer)) {
+            if (index < (sizeof(entitydefbuffer))) {
                 entitydefbuffer[index] = c;
                 index += 1;
-                index %= 10;
-            //}
+                //index %= 10;
+            }
+            currentlen += 1;
+#if DEBUG
+            entitydefbuffertrack[indtrack] = c;
+            entitydefbuffertrack[indtrack + 1] = 0;
+            indtrack += 1;
+            if (memcmp(entitydefbuffertrack, "entityDef =", sizeof("entityDef  ")) == 0) {
+                int a = 0;
+            }
+#endif
 
             if (RAPIDJSON_UNLIKELY(c == '\\')) {    // Escape
                 size_t escapeOffset = is.Tell();    // For invalid escaping, report the initial '\\' as error offset
@@ -1403,10 +1421,18 @@ private:
                 }
 
                 if (!entitydef) {
+                    EntityDefOut = entitydef;
                     os.Put('\0');   // null-terminate the string
                     return;
                 }
 
+                // When this is an entityDef definition prevent allowing "=" signs.
+                if (RAPIDJSON_UNLIKELY(c == '=')) {
+                    os.Put('\0');   // null-terminate the string
+                    return;
+                }
+
+                // entityDef needs to have a "=" or be on level 2.
                 EntityDefOut = true;
 
                 size_t offset = is.Tell();
@@ -1415,8 +1441,16 @@ private:
                     !Transcoder<SEncoding, TEncoding>::Transcode(is, os))))
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringInvalidEncoding, offset);
             }
+            else if (((RAPIDJSON_UNLIKELY(c == '{') || (RAPIDJSON_UNLIKELY(c == '='))) && (EntityDefOut != false))) {
+                os.Put('\0');   // null-terminate the string
+                return;
+            }
             else if (RAPIDJSON_UNLIKELY(static_cast<unsigned>(c) < 0x20)) { // RFC 4627: unescaped = %x20-21 / %x23-5B / %x5D-10FFFF
                 if (c == '\n') {
+                    if (EntityDefOut != false) {
+                        RAPIDJSON_PARSE_ERROR(kParseErrorStringInvalidEncoding, is.Tell());
+                    }
+
                     return;
                 } else if (c == '\0') {
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringMissQuotationMark, is.Tell());
