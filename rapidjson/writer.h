@@ -520,9 +520,10 @@ protected:
 
             specialKeyword = true;
             hideStatementEnd = true;
-            if (memcmp(stringBuffer, "entityDef ", sizeof("entityDef")) == 0) {
+            size_t lennnn = strlen(stringBuffer);
+            if ((memcmp(stringBuffer, "entityDef ", sizeof("entityDef")) == 0)) {
                 hideStatementEnd = false;
-                if ((level_stack_.GetSize() > (2 * sizeof(void*)))) {
+                if (strlen(stringBuffer) == sizeof("entityDef")) {
                     specialKeyword = false;
                 }
             }

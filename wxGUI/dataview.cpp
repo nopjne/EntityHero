@@ -61,7 +61,7 @@
 using namespace rapidjson;
 using namespace std;
 
-wxString gVersion = "0.8.1";
+wxString gVersion = "0.8.2";
 std::map<std::string, std::set<std::string>> ValueMap;
 int DecompressEntities(std::istream* input, char** OutDecompressedData, size_t& OutSize, size_t InSize);
 int CompressEntities(const char* destFilename, byte* uncompressedData, size_t size);
@@ -865,11 +865,20 @@ void MyFrame::MyHandleKillFocus(wxFocusEvent& Event)
     a += 1;
 }
 
+#if _DEBUG
+int UnitTest(void);
+#endif
+
 MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int h):
   wxFrame(frame, wxID_ANY, title, wxPoint(x, y), wxSize(w, h)),
     m_Popup(nullptr),
     m_BuildingEntitiesMap(false)
 {
+
+#if _DEBUG
+    UnitTest();
+#endif
+
     m_log = NULL;
     m_col = NULL;
 
@@ -1003,11 +1012,8 @@ MyFrame::MyFrame(wxFrame *frame, const wxString &title, int x, int y, int w, int
     wxSizer *firstPanelSz = new wxBoxSizer( wxVERTICAL );
     m_ctrl[Page_EntityView]->SetMinSize(wxSize(-1, 200));
     firstPanelSz->Add(navigationSizer, 0, wxGROW | wxALL, 5);
-
-    //firstPanelSz->Add(m_ctrl[Page_EntityView], 1, wxGROW | wxALL, 5);
-    sizerCurrent->RecalcSizes();
     firstPanelSz->Add(m_Splitter, 1, wxGROW | wxALL, 5);
-    firstPanelSz->Add(m_MHInterfaceStatus, 0, wxGROW | wxALL, 5);
+    firstPanelSz->Add(m_MHInterfaceStatus, 0, wxSHAPED | wxALL, 5);
     firstPanelSz->Add(sizerCurrent, 0, wxGROW | wxALL, 5);
     firstPanel->SetSizerAndFit(firstPanelSz);
     m_notebook->AddPage(firstPanel, "EntityView");

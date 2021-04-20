@@ -1,0 +1,195 @@
+Version 7
+HierarchyVersion 1
+entity {
+	layers {
+		"game/sp/e1m1_intro/cp_01"
+	}
+	entityDef barge_encounter_manager_priest_room_no_gk {
+	inherit = "encounter/manager";
+	class = "idEncounterManager";
+	expandInheritance = false;
+	poolCount = 0;
+	poolGranularity = 2;
+	networkReplicated = true;
+	disableAIPooling = false;
+	edit = {
+		enableAIHighlightOnFinish = true;
+		disabledAITypeForHighlight = "AI_MONSTER_SPECTRE AI_MONSTER_BUFF_POD AI_MONSTER_TENTACLE";
+		playerMetricDef = "encounter/player_metrics";
+		chargeCombatGrouping = "encounter/combat_role/charge_command";
+		aiTypeDefAssignments = "actorpopulation/default/default_no_bosses";
+		spawnPosition = {
+			x = 53.0002022;
+			y = -1595;
+			z = 17;
+		}
+		whenToSave = "SGT_NORMAL";
+		combatRatingScale = "COMBAT_RATING_SCALE_SMALL";
+		ignoreTelemetry = true;
+		encounterComponent = {
+			entityEvents = {
+				num = 1;
+				item[0] = {
+					entity = "barge_encounter_manager_priest_room_no_gk";
+					events = {
+						num = 7;
+						item[0] = {
+							eventCall = {
+								eventDef = "spawnSingleAI";
+								args = {
+									num = 3;
+									item[0] = {
+										eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ARACHNOTRON";
+									}
+									item[1] = {
+										entity = "target_spawn_first_arachno_barge";
+									}
+									item[2] = {
+										string = "priest_room_zombies";
+									}
+								}
+							}
+						}
+						item[1] = {
+							eventCall = {
+								eventDef = "spawnSingleAI";
+								args = {
+									num = 3;
+									item[0] = {
+										eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ZOMBIE_TIER_1";
+									}
+									item[1] = {
+										entity = "barge_target_spawn_intro_2";
+									}
+									item[2] = {
+										string = "priest_room_zombies";
+									}
+								}
+							}
+						}
+						item[2] = {
+							eventCall = {
+								eventDef = "spawnSingleAI";
+								args = {
+									num = 3;
+									item[0] = {
+										eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ZOMBIE_TIER_1";
+									}
+									item[1] = {
+										entity = "barge_target_spawn_intro_1";
+									}
+									item[2] = {
+										string = "priest_room_zombies";
+									}
+								}
+							}
+						}
+						item[3] = {
+							eventCall = {
+								eventDef = "waitAIRemaining";
+								args = {
+									num = 4;
+									item[0] = {
+										eEncounterSpawnType_t = "ENCOUNTER_SPAWN_ANY";
+									}
+									item[1] = {
+										int = 0;
+									}
+									item[2] = {
+										string = "priest_room_zombies";
+									}
+									item[3] = {
+										bool = true;
+									}
+								}
+							}
+						}
+						item[4] = {
+							eventCall = {
+								eventDef = "setMusicState";
+								args = {
+									num = 3;
+									item[0] = {
+										entity = "sound_sound_musicentity_1";
+									}
+									item[1] = {
+										decl = {
+											soundstate = "music_ghost_states/main_ambient";
+										}
+									}
+									item[2] = {
+										string = "set to ambient from cutscene";
+									}
+								}
+							}
+						}
+						item[5] = {
+							eventCall = {
+								eventDef = "activateTarget";
+								args = {
+									num = 2;
+									item[0] = {
+										entity = "barge_target_relay_vega_vo_obj";
+									}
+									item[1] = {
+										string = "vega - i have located";
+									}
+								}
+							}
+						}
+						item[6] = {
+							eventCall = {
+								eventDef = "activateTarget";
+								args = {
+									num = 2;
+									item[0] = {
+										entity = "barge_target_relay_first_encounter_complete";
+									}
+									item[1] = {
+										string = "set bool in logic to true";
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		entityDef = "abc";
+		commitTriggers = {
+			num = 1;
+			item[0] = "barge_encounter_trigger_commit_priest_room_no_gk";
+		}
+		exitTriggers = {
+			num = 1;
+			item[0] = "barge_encounter_trigger_exit_1";
+		}
+		spawnGroupTouchOverride = {
+			num = 1;
+			item[0] = "barge_enc_spawn_group_priest_room_zombies_no_gk";
+		}
+	}
+}
+}
+entity {
+	entityDef world {
+	inherit = "worldspawn";
+	class = "idWorldspawn";
+	expandInheritance = false;
+	poolCount = 0;
+	poolGranularity = 2;
+	networkReplicated = true;
+	disableAIPooling = false;
+	edit = {
+		globalAIsettings = "default";
+		staticAIsettings = "default";
+		globalDataComponentDecl = "globaldatacomponent";
+		importanceDecl = "default";
+		automapDecl = "game/sp/e1m1_intro/e1m1_intro";
+		envSettings = "e1m1_intro/e1m1_intro_default";
+		devmapInvLoadout = "devinvloadout/sp/e1m1";
+		masterLevelDemonBounty = "demonbounty/heavy_and_larger";
+		masterLevelDemonBountyMgr = "demonbountymanager/ml_e1m1";
+	}
+}
+}
