@@ -1170,6 +1170,11 @@ private:
             ++length_;
         }
 
+        RAPIDJSON_FORCEINLINE void Take() {
+            *stack_.template Pop<Ch>(1);
+            --length_;
+        }
+
         RAPIDJSON_FORCEINLINE void* Push(SizeType count) {
             length_ += count;
             return stack_.template Push<Ch>(count);
@@ -1428,6 +1433,7 @@ private:
 
                 // When this is an entityDef definition prevent allowing "=" signs.
                 if (RAPIDJSON_UNLIKELY(c == '=')) {
+                    os.Take();
                     os.Put('\0');   // null-terminate the string
                     return;
                 }
@@ -1442,6 +1448,7 @@ private:
                     RAPIDJSON_PARSE_ERROR(kParseErrorStringInvalidEncoding, offset);
             }
             else if (((RAPIDJSON_UNLIKELY(c == '{') || (RAPIDJSON_UNLIKELY(c == '='))) && (EntityDefOut != false))) {
+                os.Take();
                 os.Put('\0');   // null-terminate the string
                 return;
             }

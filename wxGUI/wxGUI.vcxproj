@@ -247,6 +247,7 @@
     </ClCompile>
     <ClCompile Include="prefs.cpp" />
     <ClCompile Include="ResourcesParser.cpp" />
+    <ClCompile Include="UnitTest.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\rapidjson\allocators.h" />
